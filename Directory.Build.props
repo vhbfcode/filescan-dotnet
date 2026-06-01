@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    Directory.Build.props — FileScan
+    Microserviço validador de arquivos (antimalware via ClamAV + validação estrutural).
+    Convenções alinhadas ao portfólio ProjectStandard (.NET 10, nullable, CPM).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FileScan</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>

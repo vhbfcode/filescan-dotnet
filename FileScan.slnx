@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FileScan.Api/FileScan.Api.csproj" />
+  <Project Path="FileScan.Tests/FileScan.Tests.csproj" />
+</Solution>

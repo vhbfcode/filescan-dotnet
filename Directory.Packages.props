@@ -1,0 +1,33 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM) — FileScan
+    Os .csproj usam <PackageReference Include="X" /> sem Version.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Cliente .NET do ClamAV (motor antivírus open-source) -->
+    <PackageVersion Include="nClam" Version="9.0.0" />
+
+    <!-- Detecção de tipo real por conteúdo (magic bytes). Definições Default = livres p/ uso comercial. -->
+    <PackageVersion Include="Mime-Detective" Version="25.8.1" />
+
+    <!-- Logging estruturado (mesmo baseline do portfólio) -->
+    <PackageVersion Include="Serilog.AspNetCore" Version="9.0.0" />
+
+    <!-- Swagger / OpenAPI UI -->
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+
+    <!-- Testes -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>

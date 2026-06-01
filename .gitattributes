@@ -1,0 +1,14 @@
+# Normalize text line endings on checkin; check out with LF.
+* text=auto eol=lf
+
+# Windows-native tooling keeps CRLF.
+*.ps1 text eol=crlf
+*.slnx text eol=crlf
+
+# Binary test assets — never normalize.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.docx binary
+*.xlsx binary

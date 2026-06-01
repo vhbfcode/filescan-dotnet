@@ -1,0 +1,1 @@
+<html><body><table><tr><td>=cmd|'/c calc.exe'!A1</td></tr><tr><td><script>alert('XSS')</script></td></tr></table></body></html>

@@ -1,0 +1,13 @@
+## .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+artifacts/
+
+## Rider
+.idea/
+
+## Saída de publish
+publish/
+*.zip
