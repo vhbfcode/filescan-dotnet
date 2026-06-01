@@ -1,3 +1,5 @@
+**English** · [Português](README.pt-BR.md)
+
 # FileScan
 
 A small **file-validation microservice**. It takes an uploaded file and tells you whether it is
