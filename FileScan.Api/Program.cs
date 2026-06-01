@@ -2,8 +2,10 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using FileScan.Scanning;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using MimeDetective;
@@ -54,6 +56,36 @@ ScanLimits.MaxDecompressedBytesPerStream =
 // O teto do request segue o tamanho máximo do arquivo (não fica hardcoded no controller).
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxRequestBytes);
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = maxRequestBytes);
+
+// --- Rate limiting do /scan (configurável; particionado por API key ou IP) ---
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (ctx, _) =>
+    {
+        if (ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            ctx.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds).ToString();
+        return ValueTask.CompletedTask;
+    };
+    options.AddPolicy("scan", ctx =>
+    {
+        var rl = ctx.RequestServices.GetRequiredService<IOptions<FileScanOptions>>().Value.RateLimit;
+        if (!rl.Enabled)
+            return RateLimitPartition.GetNoLimiter("disabled");
+
+        // por API key se houver; senão por IP.
+        var key = ctx.Request.Headers["X-Api-Key"].ToString();
+        if (string.IsNullOrEmpty(key))
+            key = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = rl.PermitLimit,
+            Window = TimeSpan.FromSeconds(rl.WindowSeconds),
+            QueueLimit = 0,
+        });
+    });
+});
 
 // --- Cliente ClamAV ---
 builder.Services.AddSingleton<IClamClient>(sp =>
@@ -122,6 +154,8 @@ app.Use(async (context, next) =>
 
     await next();
 });
+
+app.UseRateLimiter();
 
 // --- Liveness: o processo está de pé? ---
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));

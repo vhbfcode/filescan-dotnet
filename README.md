@@ -82,6 +82,7 @@ Interactive docs (Swagger UI) are served at `/swagger`.
 | `ClamAv:Enabled` | `true` | Enables the antivirus layer. `false` = structural + active-content only (**no container/daemon**) |
 | `ClamAv:Host` / `ClamAv:Port` | `localhost` / `3310` | Address of the `clamd` daemon (when enabled) |
 | `ActiveContent:OnDetected` | `Reject` | Active content (PDF/Office/CSV/images): `Reject`, `Flag` (passes + `warnings`), or `Ignore` |
+| `RateLimit:Enabled` / `:PermitLimit` / `:WindowSeconds` | `true` / `60` / `60` | Rate limit on `/scan` per client (API key, else IP): N requests per window → `429` |
 
 Any key can be overridden by environment variables, e.g. `FileScan__ClamAv__Enabled=false`.
 

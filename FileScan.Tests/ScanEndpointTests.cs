@@ -17,6 +17,7 @@ public sealed class FileScanFactory : WebApplicationFactory<Program>
             cfg.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["FileScan:ClamAv:Enabled"] = "false",
+                ["FileScan:RateLimit:Enabled"] = "false",
             }));
     }
 }

@@ -32,6 +32,8 @@ public sealed class FileScanOptions
 
     public ActiveContentOptions ActiveContent { get; set; } = new();
 
+    public RateLimitOptions RateLimit { get; set; } = new();
+
     public sealed class ClamAvOptions
     {
         /// <summary>Liga a camada de antivírus. Desligado = só estrutural + conteúdo ativo (sem container/daemon).</summary>
@@ -45,6 +47,20 @@ public sealed class FileScanOptions
     {
         /// <summary>O que fazer ao detectar conteúdo ativo (JS, macros, DDE, fórmulas, polyglot...).</summary>
         public ActiveContentAction OnDetected { get; set; } = ActiveContentAction.Reject;
+    }
+
+    public sealed class RateLimitOptions
+    {
+        /// <summary>Liga o rate limiting do endpoint /scan.</summary>
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>Máximo de requisições por janela, por cliente (API key, ou IP se não houver chave).</summary>
+        [Range(1, 1_000_000)]
+        public int PermitLimit { get; set; } = 60;
+
+        /// <summary>Tamanho da janela, em segundos.</summary>
+        [Range(1, 86_400)]
+        public int WindowSeconds { get; set; } = 60;
     }
 }
 

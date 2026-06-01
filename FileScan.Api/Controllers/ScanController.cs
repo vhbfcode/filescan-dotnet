@@ -1,5 +1,6 @@
 using FileScan.Scanning;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FileScan.Controllers;
 
@@ -13,6 +14,7 @@ namespace FileScan.Controllers;
 [ApiController]
 [Route("scan")]
 [Produces("application/json")]
+[EnableRateLimiting("scan")]
 public sealed class ScanController(FileScanService scanner) : ControllerBase
 {
     /// <summary>Valida um arquivo enviado em multipart/form-data (campo "file").</summary>
