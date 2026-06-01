@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using FileScan.Scanning;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using MimeDetective;
@@ -43,6 +44,16 @@ builder.Services.AddOptions<FileScanOptions>()
     .Bind(builder.Configuration.GetSection(FileScanOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+
+// --- Limites de tamanho (configuráveis via FileScan:*) ---
+var maxFileBytes = builder.Configuration.GetValue<long?>($"{FileScanOptions.SectionName}:MaxFileSizeBytes") ?? 25L * 1024 * 1024;
+var maxRequestBytes = maxFileBytes + 1024 * 1024; // +1 MB de margem para o overhead do multipart
+ScanLimits.MaxDecompressedBytesPerStream =
+    builder.Configuration.GetValue<long?>($"{FileScanOptions.SectionName}:MaxDecompressedBytesPerStream") ?? 16L * 1024 * 1024;
+
+// O teto do request segue o tamanho máximo do arquivo (não fica hardcoded no controller).
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxRequestBytes);
+builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = maxRequestBytes);
 
 // --- Cliente ClamAV ---
 builder.Services.AddSingleton<IClamClient>(sp =>

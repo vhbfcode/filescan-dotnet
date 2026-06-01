@@ -9,9 +9,13 @@ public sealed class FileScanOptions
 {
     public const string SectionName = "FileScan";
 
-    /// <summary>Tamanho máximo aceito, em bytes. Default 25 MB (= StreamMaxLength padrão do ClamAV).</summary>
+    /// <summary>Tamanho máximo aceito, em bytes. Default 25 MB (= StreamMaxLength padrão do ClamAV). Também define o teto do request.</summary>
     [Range(1, 2L * 1024 * 1024 * 1024)]
     public long MaxFileSizeBytes { get; set; } = 25 * 1024 * 1024;
+
+    /// <summary>Máximo de bytes descomprimidos por stream/anexo inspecionado (guarda anti-DoS). Default 16 MB.</summary>
+    [Range(64 * 1024, 256L * 1024 * 1024)]
+    public long MaxDecompressedBytesPerStream { get; set; } = 16 * 1024 * 1024;
 
     /// <summary>
     /// Extensões permitidas (sem ponto, minúsculas). Vazio = não restringe por extensão

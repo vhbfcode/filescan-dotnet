@@ -9,8 +9,7 @@ namespace FileScan.Scanning;
 /// </summary>
 internal static class PdfEmbeddedFileExtractor
 {
-    private const int MaxEmbedded = 50;
-    private const int MaxContentBytes = 16 * 1024 * 1024;
+    private const int MaxEmbedded = 50; // cap de bytes por anexo vem de ScanLimits
 
     public static List<byte[]> Extract(byte[] pdf)
     {
@@ -76,7 +75,7 @@ internal static class PdfEmbeddedFileExtractor
             while ((read = dec.Read(buf, 0, buf.Length)) > 0)
             {
                 total += read;
-                if (total > MaxContentBytes) { output.Write(buf, 0, read - (total - MaxContentBytes)); break; }
+                if (total > ScanLimits.MaxDecompressedBytesPerStream) { output.Write(buf, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream))); break; }
                 output.Write(buf, 0, read);
             }
 

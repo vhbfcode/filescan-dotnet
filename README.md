@@ -75,7 +75,8 @@ Interactive docs (Swagger UI) are served at `/swagger`.
 
 | Key | Default | Description |
 |---|---|---|
-| `MaxFileSizeBytes` | `26214400` (25 MB) | Maximum accepted size |
+| `MaxFileSizeBytes` | `26214400` (25 MB) | Maximum accepted file size (also drives the request body limit, plus a small margin) |
+| `MaxDecompressedBytesPerStream` | `16777216` (16 MB) | Per-stream/attachment cap on decompressed bytes (zip-bomb guard) |
 | `AllowedExtensions` | `pdf,doc,docx,xls,xlsx,csv,jpg,jpeg,png` | Accepted extension allowlist; empty = no restriction |
 | `ApiKey` | `""` | Requires the `X-Api-Key` header when set |
 | `ClamAv:Enabled` | `true` | Enables the antivirus layer. `false` = structural + active-content only (**no container/daemon**) |

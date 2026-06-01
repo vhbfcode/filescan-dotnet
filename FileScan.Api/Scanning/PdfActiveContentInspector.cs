@@ -14,8 +14,7 @@ namespace FileScan.Scanning;
 /// </summary>
 public static class PdfActiveContentInspector
 {
-    private const int MaxStreams = 200;              // guarda contra PDF gigante
-    private const int MaxInflatedBytesPerStream = 16 * 1024 * 1024; // guarda contra zip bomb
+    private const int MaxStreams = 200; // guarda contra PDF gigante (cap de bytes vem de ScanLimits)
 
     // Marcadores de conteúdo ATIVO/perigoso. Nomes de PDF são case-sensitive, então a busca é exata.
     // /OpenAction e /AA: removidos (benignos — zoom/transições — e davam FP com subset de fonte tipo
@@ -155,9 +154,9 @@ public static class PdfActiveContentInspector
             while ((read = decompressor.Read(buffer, 0, buffer.Length)) > 0)
             {
                 total += read;
-                if (total > MaxInflatedBytesPerStream)
+                if (total > ScanLimits.MaxDecompressedBytesPerStream)
                 {
-                    output.Write(buffer, 0, read - (total - MaxInflatedBytesPerStream));
+                    output.Write(buffer, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream)));
                     break;
                 }
                 output.Write(buffer, 0, read);

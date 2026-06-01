@@ -11,8 +11,7 @@ public enum FileKind { Pdf, Ooxml, Ole2, Image, Csv, Text }
 /// </summary>
 public static class ActiveContentInspector
 {
-    private const int MaxOoxmlEntries = 512;
-    private const int MaxEntryBytes = 16 * 1024 * 1024;
+    private const int MaxOoxmlEntries = 512; // cap de bytes por entrada vem de ScanLimits
 
     public static IReadOnlyList<string> Inspect(string fileName, byte[] content) =>
         Detect(fileName, content) switch
@@ -197,9 +196,9 @@ public static class ActiveContentInspector
             while ((read = es.Read(buf, 0, buf.Length)) > 0)
             {
                 total += read;
-                if (total > MaxEntryBytes)
+                if (total > ScanLimits.MaxDecompressedBytesPerStream)
                 {
-                    outMs.Write(buf, 0, read - (total - MaxEntryBytes));
+                    outMs.Write(buf, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream)));
                     break;
                 }
                 outMs.Write(buf, 0, read);

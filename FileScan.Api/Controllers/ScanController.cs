@@ -21,7 +21,6 @@ public sealed class ScanController(FileScanService scanner) : ControllerBase
     /// <response code="503">Não foi possível escanear (ex.: ClamAV indisponível) — falhe fechado.</response>
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(52_428_800)] // ~50 MB de teto no request (o tamanho útil é validado por FileScan:MaxFileSizeBytes)
     [ProducesResponseType(typeof(ScanResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ScanResponse), StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

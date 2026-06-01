@@ -76,7 +76,8 @@ A documentação interativa (Swagger UI) fica em `/swagger`.
 
 | Chave | Default | Descrição |
 |---|---|---|
-| `MaxFileSizeBytes` | `26214400` (25 MB) | Tamanho máximo aceito |
+| `MaxFileSizeBytes` | `26214400` (25 MB) | Tamanho máximo do arquivo (também define o teto do request, + margem) |
+| `MaxDecompressedBytesPerStream` | `16777216` (16 MB) | Cap de bytes descomprimidos por stream/anexo (guarda anti zip-bomb) |
 | `AllowedExtensions` | `pdf,doc,docx,xls,xlsx,csv,jpg,jpeg,png` | Allowlist de extensões aceitas; vazio = não restringe |
 | `ApiKey` | `""` | Exige o header `X-Api-Key` quando preenchida |
 | `ClamAv:Enabled` | `true` | Liga a camada de antivírus. `false` = só estrutural + conteúdo ativo (**sem container/daemon**) |
