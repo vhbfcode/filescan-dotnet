@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 using FileScan.Scanning;
 using Microsoft.Extensions.Options;
@@ -62,16 +64,28 @@ builder.Services.AddSingleton<FileScanService>();
 
 var app = builder.Build();
 
+// --- Aviso de segurança: fora de Development sem API key, o /scan fica aberto. ---
+if (!app.Environment.IsDevelopment()
+    && string.IsNullOrEmpty(app.Services.GetRequiredService<IOptions<FileScanOptions>>().Value.ApiKey))
+{
+    app.Logger.LogWarning(
+        "FileScan rodando em '{Environment}' SEM API key (FileScan:ApiKey vazio): o endpoint /scan está ABERTO. " +
+        "Defina FileScan:ApiKey ou proteja o serviço por rede/gateway.",
+        app.Environment.EnvironmentName);
+}
+
 app.UseSerilogRequestLogging();
 
-// --- Swagger UI em /swagger (servida antes do API key, para abrir no navegador) ---
-// Em produção, considerar restringir a Development.
-app.UseSwagger();
-app.UseSwaggerUI(o =>
+// --- Swagger UI em /swagger — apenas em Development (não expor o contrato em produção). ---
+if (app.Environment.IsDevelopment())
 {
-    o.SwaggerEndpoint("/swagger/v1/swagger.json", "FileScan v1");
-    o.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(o =>
+    {
+        o.SwaggerEndpoint("/swagger/v1/swagger.json", "FileScan v1");
+        o.RoutePrefix = "swagger";
+    });
+}
 
 // --- Autenticação por API key (opcional: ligada quando FileScan:ApiKey estiver setada) ---
 app.Use(async (context, next) =>
@@ -82,7 +96,13 @@ app.Use(async (context, next) =>
 
     if (!isPublic && !string.IsNullOrEmpty(opt.ApiKey))
     {
-        if (!context.Request.Headers.TryGetValue("X-Api-Key", out var key) || key != opt.ApiKey)
+        // Comparação em tempo constante (evita timing side-channel na chave).
+        var provided = context.Request.Headers["X-Api-Key"].ToString();
+        var matches = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(provided),
+            Encoding.UTF8.GetBytes(opt.ApiKey));
+
+        if (!matches)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
