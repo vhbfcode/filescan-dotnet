@@ -22,6 +22,10 @@ public class ActiveContentInspectorTests
         => Assert.NotEmpty(ActiveContentInspector.Inspect("x.docx", Samples.DocxWithDde()));
 
     [Fact]
+    public void DocxWithImageBytesContainingPercent_IsNotFalsePositive()
+        => Assert.Empty(ActiveContentInspector.Inspect("x.docx", Samples.DocxWithImageContainingPercentBytes()));
+
+    [Fact]
     public void CsvFormulaInjection_IsDetected()
         => Assert.NotEmpty(ActiveContentInspector.Inspect("x.csv", Samples.CsvInjection()));
 

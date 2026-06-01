@@ -173,7 +173,9 @@ public static class ActiveContentInspector
                 if (data.Length == 0) continue;
 
                 var lower = ActiveContentMarkers.ToLowerAscii(data);
-                ActiveContentMarkers.ScanLower(lower, ActiveContentMarkers.Script, found, seen);
+                // Entradas OOXML podem ser binárias (mídia embutida); usa o conjunto sem o "<%" de 2 bytes,
+                // que casa por acaso em imagem. DDE/macro/formula e scripts longos continuam cobertos.
+                ActiveContentMarkers.ScanLower(lower, ActiveContentMarkers.ScriptBinarySafe, found, seen);
                 ActiveContentMarkers.ScanLower(lower, ActiveContentMarkers.OfficeDanger, found, seen);
                 ActiveContentMarkers.ScanLower(lower, ActiveContentMarkers.Macro, found, seen);
             }

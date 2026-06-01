@@ -70,6 +70,22 @@ internal static class Samples
         }
     }
 
+    /// <summary>DOCX com uma "imagem" binária embutida cujos bytes contêm "&lt;%" por acaso — não pode dar FP.</summary>
+    public static byte[] DocxWithImageContainingPercentBytes()
+    {
+        using var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var w = new StreamWriter(zip.CreateEntry("word/document.xml").Open()))
+                w.Write("<?xml version=\"1.0\"?><w:document xmlns:w=\"x\"><w:body/></w:document>");
+
+            using var s = zip.CreateEntry("word/media/image1.png").Open();
+            var img = Concat(PngSig, A("imagem binaria com <% por acaso"));
+            s.Write(img, 0, img.Length);
+        }
+        return ms.ToArray();
+    }
+
     // --- CSV ---
     public static byte[] CsvInjection() => A("Nome,Valor\n=cmd|'/c calc.exe'!A1,a\n@SUM(1)*x,b\n");
     public static byte[] CsvCleanNegatives() => A("Nome,Saldo,Telefone\nJoao,-150.50,+5511987654321\nMaria,-2000,+551130001000\n");
