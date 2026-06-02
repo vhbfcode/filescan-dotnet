@@ -2,9 +2,32 @@
 
 # FileScan
 
-A small **file-validation microservice**. It takes an uploaded file and tells you whether it is
-**malicious or not** — designed to be dropped in front of existing apps with a single HTTP call
-before the file is written to storage.
+![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)
+
+A small **file-validation microservice**: hand it an uploaded file and it tells you whether the file
+is **malicious or not** — designed to sit in front of existing apps with a single HTTP call before
+the file reaches storage.
+
+Most upload pipelines trust the file extension. Malicious uploads — PDFs with auto-running
+JavaScript, Office documents with DDE/macros, CSV formula injection, polyglot images — slip past
+extension checks, and past signature-based antivirus when the payload is new. FileScan catches that
+class of attack at the **application layer**, before the file is stored. It also fills a real gap:
+there is no widely-used free **.NET** library for multi-format injection detection — the
+alternatives are commercial CDR products or language-specific tools.
+
+## Highlights
+
+- **Multi-format injection detection** — PDF JavaScript, Office DDE/macros, CSV formula injection
+  (OWASP), polyglot images — plus **recursive inspection of PDF attachments** (a benign embedded XML
+  passes; an embedded `.exe` is caught).
+- **True file-type checking** by content / magic bytes (Mime-Detective), not just the extension.
+- **No container required** — the ClamAV antivirus layer is optional; with it off, the service is
+  pure .NET and deploys like any ordinary web app.
+- **Validated on real documents — zero false positives** — 72 real insurance PDFs and 8 real
+  Office/image files all pass cleanly (after false-positive tuning).
+- **Security-minded** — fail-closed semantics, per-client rate limiting on by default, Swagger gated
+  to Development, optional constant-time API-key auth, configurable size/decompression limits.
+- **29 automated tests** (xUnit) with inputs generated in code — `dotnet test`, no Docker needed.
 
 > ⚠️ **Notice / Scope:** FileScan performs **heuristic detection** of malicious / script-injection
 > content. It is **not** a certified CDR product, it does **not** replace a full antivirus or a
