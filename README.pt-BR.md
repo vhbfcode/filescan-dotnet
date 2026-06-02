@@ -167,3 +167,8 @@ código — nenhum arquivo externo. Há também scripts de teste manual em `_tes
 Dependências: **nClam** (Apache-2.0), **Mime-Detective** (MIT; definições *Default* livres para uso
 comercial), **Serilog** (Apache-2.0), **Swashbuckle** (MIT). O **ClamAV** (GPLv2) roda como
 processo/contêiner **separado** — não é linkado ao código deste projeto.
+
+## Agradecimentos
+
+Projetado e construído com [Claude Code](https://www.anthropic.com/claude-code) — da análise inicial
+à detecção multi-formato, ajuste de falso-positivos em documentos reais, hardening de segurança e testes.

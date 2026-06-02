@@ -166,3 +166,9 @@ files. There are also manual helper scripts under `_testfiles/` (`run_pdf_batch.
 Dependencies: **nClam** (Apache-2.0), **Mime-Detective** (MIT; *Default* definitions free for
 commercial use), **Serilog** (Apache-2.0), **Swashbuckle** (MIT). **ClamAV** (GPLv2) runs as a
 **separate** process/container — it is not linked into this project's code.
+
+## Acknowledgments
+
+Designed and built with [Claude Code](https://www.anthropic.com/claude-code) — from the initial
+analysis through the multi-format detection, false-positive tuning on real documents, security
+hardening, and tests.
