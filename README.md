@@ -23,8 +23,8 @@ alternatives are commercial CDR products or language-specific tools.
 - **True file-type checking** by content / magic bytes (Mime-Detective), not just the extension.
 - **No container required** — the ClamAV antivirus layer is optional; with it off, the service is
   pure .NET and deploys like any ordinary web app.
-- **Validated on real documents — zero false positives** — 72 real insurance PDFs and 8 real
-  Office/image files all pass cleanly (after false-positive tuning).
+- **Validated on real documents — zero false positives** — dozens of real-world files (insurance
+  PDFs, Office documents, images) pass cleanly after false-positive tuning.
 - **Security-minded** — fail-closed semantics, per-client rate limiting on by default, Swagger gated
   to Development, optional constant-time API-key auth, configurable size/decompression limits.
 - **29 automated tests** (xUnit) with inputs generated in code — `dotnet test`, no Docker needed.

@@ -23,8 +23,8 @@ injeção multi-formato — as alternativas são CDR comercial ou ferramentas de
 - **Verificação do tipo real** por conteúdo / magic bytes (Mime-Detective), não só pela extensão.
 - **Sem container** — a camada de antivírus ClamAV é opcional; desligada, o serviço é .NET puro e
   faz deploy como qualquer app web comum.
-- **Validado em documentos reais — zero falso-positivo** — 72 PDFs reais de seguro e 8 arquivos
-  reais de Office/imagem passam limpos (após ajuste de falso-positivo).
+- **Validado em documentos reais — zero falso-positivo** — dezenas de arquivos reais (PDFs de
+  seguro, documentos Office, imagens) passam limpos após ajuste de falso-positivo.
 - **Pensado em segurança** — fail-closed, rate limiting por cliente ligado por padrão, Swagger só em
   Development, auth opcional por API key (constant-time), limites de tamanho/descompressão configuráveis.
 - **29 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
