@@ -11,3 +11,6 @@ artifacts/
 ## Saída de publish
 publish/
 *.zip
+
+## Notas internas locais — nunca versionar
+*.local.md
