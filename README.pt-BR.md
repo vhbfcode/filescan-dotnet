@@ -84,6 +84,13 @@ Três camadas de validação, em ordem:
 
 **Regra de ouro do chamador:** só persistir o arquivo se `HTTP 200` **e** `verdict == "Clean"`.
 
+> ⚠️ **`Clean` ≠ "pode renderizar inline".** O FileScan só escaneia, não serve arquivo.
+> Ao entregar um upload de usuário ao browser, o app consumidor **deve** servir como
+> download (`Content-Disposition: attachment`), desligar o sniffing (`X-Content-Type-Options: nosniff`),
+> mandar o `Content-Type` correto e aplicar CSP (`object-src 'none'`) — de preferência a
+> partir de uma origem separada/sem cookies. É aí que se neutraliza o stored XSS via PDF
+> com JavaScript. Ver [SECURITY.md](SECURITY.md#caller-responsibilities-serving-uploaded-files).
+
 ### `GET /health`
 Liveness — o processo está de pé.
 

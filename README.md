@@ -84,6 +84,13 @@ Three validation layers, in order:
 
 **Caller's golden rule:** only persist the file if `HTTP 200` **and** `verdict == "Clean"`.
 
+> ⚠️ **`Clean` ≠ "safe to render inline".** FileScan only scans; it never serves files.
+> When you serve a user upload to a browser, the consuming app **must** serve it as a
+> download (`Content-Disposition: attachment`), disable sniffing (`X-Content-Type-Options: nosniff`),
+> send the correct `Content-Type`, and apply a CSP (`object-src 'none'`) — ideally from a
+> separate, cookie-less origin. That is what neutralizes stored XSS via JavaScript-bearing
+> PDFs. See [SECURITY.md](SECURITY.md#caller-responsibilities-serving-uploaded-files).
+
 ### `GET /health`
 Liveness — the process is up.
 
