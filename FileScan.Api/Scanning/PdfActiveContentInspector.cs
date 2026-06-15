@@ -32,21 +32,86 @@ public static class PdfActiveContentInspector
         var found = new List<string>();
         var seen = new HashSet<string>();
 
-        // 1) bytes crus
-        ScanInto(content, found, seen);
+        // 1) bytes crus (normalizados: #XX dentro de nomes PDF são decodificados)
+        var normalized = NormalizePdfNames(content);
+        ScanInto(normalized, found, seen);
 
-        // 2) streams comprimidos descomprimidos
+        // 2) streams comprimidos descomprimidos (cada um também normalizado)
         if (seen.Count < Markers.Length)
         {
             foreach (var inflated in InflateStreams(content))
             {
-                ScanInto(inflated, found, seen);
+                var normalizedInflated = NormalizePdfNames(inflated);
+                ScanInto(normalizedInflated, found, seen);
                 if (seen.Count == Markers.Length) break;
             }
         }
 
         return found;
     }
+
+    /// <summary>
+    /// Retorna uma cópia do buffer onde, DENTRO de tokens de nome PDF (iniciados por '/'),
+    /// sequências '#XX' (dois dígitos hex) são decodificadas para o byte correspondente.
+    /// Bytes FORA de nomes são copiados literalmente — isso evita falsos positivos causados por
+    /// '#' em dados binários comprimidos.
+    /// Shortcut: se não há '#' no buffer, devolve o array original sem alocação extra.
+    /// </summary>
+    private static byte[] NormalizePdfNames(ReadOnlySpan<byte> data)
+    {
+        // Shortcut: sem '#' não há nada a decodificar.
+        if (data.IndexOf((byte)'#') < 0)
+            return data.ToArray();
+
+        var result = new byte[data.Length]; // tamanho máximo (pode encolher)
+        int w = 0;        // posição de escrita no resultado
+        bool inName = false;
+
+        for (int r = 0; r < data.Length; r++)
+        {
+            byte b = data[r];
+
+            if (!inName)
+            {
+                result[w++] = b;
+                if (b == (byte)'/')
+                    inName = true;
+            }
+            else
+            {
+                // '/' é delimitador: encerra o nome atual e inicia um novo imediatamente.
+                if (IsPdfDelimiter(b))
+                {
+                    result[w++] = b;
+                    // '/' inicia o próximo nome; qualquer outro delimitador termina sem iniciar.
+                    inName = b == (byte)'/';
+                }
+                else if (b == (byte)'#' && r + 2 < data.Length
+                         && IsHexDigit(data[r + 1]) && IsHexDigit(data[r + 2]))
+                {
+                    // Decodifica #XX → byte
+                    result[w++] = (byte)((HexVal(data[r + 1]) << 4) | HexVal(data[r + 2]));
+                    r += 2; // avança sobre os dois dígitos hex
+                }
+                else
+                {
+                    result[w++] = b;
+                }
+            }
+        }
+
+        return result[..w];
+    }
+
+    private static bool IsHexDigit(byte b) =>
+        (b >= (byte)'0' && b <= (byte)'9') ||
+        (b >= (byte)'a' && b <= (byte)'f') ||
+        (b >= (byte)'A' && b <= (byte)'F');
+
+    private static int HexVal(byte b) =>
+        b >= (byte)'a' ? b - (byte)'a' + 10 :
+        b >= (byte)'A' ? b - (byte)'A' + 10 :
+                         b - (byte)'0';
 
     private static void ScanInto(ReadOnlySpan<byte> data, List<string> found, HashSet<string> seen)
     {

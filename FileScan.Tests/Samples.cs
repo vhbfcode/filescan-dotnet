@@ -40,6 +40,52 @@ internal static class Samples
         "3 0 obj<</Type/Page/Parent 2 0 R/Resources<</Font<</F1<</BaseFont/AAAAAA+Lato-Bold/Subtype/Type1>>>>>>>>endobj\n" +
         "trailer<</Root 1 0 R>>\n%%EOF");
 
+    // PDF com nome hex-codificado: /J#53 → /JS  (evasão de inspetor literal)
+    public static byte[] PdfWithHexEncodedJs() => A(
+        "%PDF-1.3\n" +
+        "1 0 obj<</Type/Catalog/OpenAction<</S/J#53/J#53 (app.alert\\('x'\\))>>>>endobj\n" +
+        "trailer<</Root 1 0 R>>\n%%EOF");
+
+    // PDF com /JavaScript parcialmente hex-codificado: /Java#53cript → /JavaScript.
+    // SEM /JS auxiliar: só passa se a decodificação casar com o marcador /JavaScript.
+    public static byte[] PdfWithPartiallyHexEncodedJavaScript() => A(
+        "%PDF-1.3\n" +
+        "1 0 obj<</Type/Catalog/OpenAction<</S/Java#53cript (app.alert\\('x'\\))>>>>endobj\n" +
+        "trailer<</Root 1 0 R>>\n%%EOF");
+
+    // PDF com /JavaScript totalmente hex-codificado no início: /#4AavaScript → /JavaScript
+    // (o 'S' fica literal para casar o marcador case-sensitive). SEM /JS auxiliar.
+    public static byte[] PdfWithFullyHexEncodedJavaScript() => A(
+        "%PDF-1.3\n" +
+        "1 0 obj<</Type/Catalog/OpenAction<</S/#4AavaScript (app.alert\\('x'\\))>>>>endobj\n" +
+        "trailer<</Root 1 0 R>>\n%%EOF");
+
+    // PDF com /Launch hex-codificado: /L#61unch
+    public static byte[] PdfWithHexEncodedLaunch() => A(
+        "%PDF-1.3\n" +
+        "1 0 obj<</Type/Catalog/OpenAction<</S/L#61unch/F (calc.exe)>>>>endobj\n" +
+        "trailer<</Root 1 0 R>>\n%%EOF");
+
+    // PDF com '#' em bytes binários (fora de nome): não deve gerar falso-positivo
+    public static byte[] PdfWithHashInBinaryStream()
+    {
+        // Dados "binários" com #53 que NÃO estão dentro de um nome PDF
+        var binaryData = new byte[] { 0x00, 0xFF, (byte)'#', (byte)'5', (byte)'3', 0xAB, 0xCD };
+        var head = A(
+            "%PDF-1.4\n" +
+            "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
+            "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+            "3 0 obj<</Type/Page/Parent 2 0 R>>\nstream\n");
+        var tail = A("\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF");
+        return Concat(head, binaryData, tail);
+    }
+
+    // PDF com '#' dentro de um nome que NÃO é seguido de dois hex-dígitos: deve ser literal (sem crash)
+    public static byte[] PdfWithInvalidHashEscapeInName() => A(
+        "%PDF-1.4\n" +
+        "1 0 obj<</Type/Catalog/SomeName/Foo#ZZBar>>endobj\n" +
+        "trailer<</Root 1 0 R>>\n%%EOF");
+
     public static byte[] PdfWithEmbeddedExe()
     {
         var stub = Concat(Mz, A("  fake PE stub para teste, nao e executavel real  "));

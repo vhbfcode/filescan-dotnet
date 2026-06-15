@@ -2,7 +2,7 @@
 
 # FileScan
 
-![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)
 
 Um pequeno **microsserviço de validação de arquivos**: você entrega um upload e ele diz se o arquivo
 é **malicioso ou não** — pensado para ficar na frente de apps existentes com uma única chamada HTTP
@@ -27,7 +27,7 @@ injeção multi-formato — as alternativas são CDR comercial ou ferramentas de
   seguro, documentos Office, imagens) passam limpos após ajuste de falso-positivo.
 - **Pensado em segurança** — fail-closed, rate limiting por cliente ligado por padrão, Swagger só em
   Development, auth opcional por API key (constant-time), limites de tamanho/descompressão configuráveis.
-- **29 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
+- **36 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
 
 > ⚠️ **Aviso / Escopo:** o FileScan faz **detecção heurística** de conteúdo malicioso/injeção.
 > **Não é** um produto de CDR certificado, **não substitui** um antivírus completo nem uma solução
@@ -45,7 +45,8 @@ Três camadas de validação, em ordem:
 2. **Conteúdo ativo** (heurística multi-formato): detecta injeção de script por tipo de arquivo —
    - **PDF**: JavaScript (`/JavaScript`, `/JS`), `/Launch` e **inspeção recursiva de anexos**
      (`/EmbeddedFile` — o anexo é extraído e validado; benigno passa, exe/script/macro embutido é
-     pego). Cobre streams FlateDecode.
+     pego). Cobre streams FlateDecode e normaliza nomes hex-codificados
+     (`/J#53` ≡ `/JS`) para que não escapem da detecção.
    - **Office OOXML** (`docx`/`xlsx`): descompacta o ZIP e procura DDE, macros (`vbaProject`),
      formula injection e objetos OLE.
    - **CSV**: formula/command injection conforme **OWASP** (célula iniciando com `=` `@` Tab, ou

@@ -65,11 +65,6 @@ origem da aplicação reintroduz o risco de stored XSS que o FileScan reduziu.
 These are conscious gaps in the heuristic layer; ClamAV (when enabled) and the caller
 responsibilities above are the complementary layers.
 
-- **PDF name hex-encoding.** The PDF spec allows a name token's characters to be
-  hex-escaped as `#XX` (e.g. `/J#53` ≡ `/JS`, `/#4Aavascript` ≡ `/Javascript`). The
-  active-content marker search is a literal byte match, so a payload that hex-encodes
-  the action name can slip past the PDF heuristic. Normalizing `#XX` in names before
-  matching would close this; not yet implemented.
 - **Non-Flate stream filters.** Active-content scanning covers raw bytes and
   **FlateDecode** streams. JavaScript hidden behind other filters (ASCIIHex, ASCII85,
   LZW, or chained filters) or inside an **encrypted** PDF is not inspected. Full
@@ -80,11 +75,6 @@ responsibilities above are the complementary layers.
 São lacunas conscientes da camada heurística; o ClamAV (quando habilitado) e as
 responsabilidades de quem chama (acima) são as camadas complementares.
 
-- **Hex-encoding de *names* de PDF.** A spec do PDF permite escapar os caracteres de um
-  *name* como `#XX` (ex.: `/J#53` ≡ `/JS`, `/#4Aavascript` ≡ `/Javascript`). A busca de
-  marcadores de conteúdo ativo é um match literal de bytes, então um payload que faz
-  hex-encoding do nome da ação pode escapar da heurística de PDF. Normalizar `#XX` nos
-  *names* antes do match fecharia isso; ainda não implementado.
 - **Filtros de stream não-Flate.** O scan de conteúdo ativo cobre os bytes crus e os
   streams **FlateDecode**. JavaScript escondido atrás de outros filtros (ASCIIHex,
   ASCII85, LZW ou filtros encadeados) ou dentro de um PDF **criptografado** não é
