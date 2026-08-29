@@ -90,6 +90,8 @@ As opções são **por instância** (sem estado global): dois consumidores no me
 limites diferentes. Um motor de antivírus pode ser plugado via a interface opcional `IVirusScanner`
 — é exatamente assim que a API deste repo pluga o ClamAV.
 
+Para gerar o pacote NuGet: `dotnet pack FileScan.Core -c Release -o artifacts`.
+
 ---
 
 ## API

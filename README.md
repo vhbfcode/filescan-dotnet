@@ -90,6 +90,8 @@ Options are **per instance** (no global state): two consumers in the same proces
 limits. An antivirus engine can be plugged in via the optional `IVirusScanner` interface — that is
 exactly how this repo's API plugs ClamAV in.
 
+To produce the NuGet package: `dotnet pack FileScan.Core -c Release -o artifacts`.
+
 ---
 
 ## API

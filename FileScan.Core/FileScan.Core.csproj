@@ -8,10 +8,29 @@
   -->
 
   <PropertyGroup>
-    <Description>Validação de arquivos de upload: tipo real por conteúdo (magic bytes) + detecção heurística de conteúdo ativo (JavaScript em PDF, macros/DDE em Office, formula injection em CSV, imagens polyglot). Antivírus opcional/plugável.</Description>
+    <Description>Upload file validation for .NET, in-process (no API, no daemon): real content-type check via magic bytes (Mime-Detective) + heuristic active-content detection — JavaScript in PDF, Office DDE/macros, CSV formula injection (OWASP), polyglot images. Optional pluggable antivirus via IVirusScanner. Heuristic defense-in-depth layer, not a certified CDR/antivirus.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
+
+  <!-- Metadado do pacote NuGet -->
+  <PropertyGroup>
+    <PackageId>FileScan.Core</PackageId>
+    <Authors>Vitor Fallavena</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/vhbfcode/filescan-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/vhbfcode/filescan-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>file-validation;upload-security;pdf;javascript-detection;macro-detection;csv-injection;owasp;mime;magic-bytes;antivirus;security</PackageTags>
+    <PackageReleaseNotes>See https://github.com/vhbfcode/filescan-dotnet/releases</PackageReleaseNotes>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Mime-Detective" />
