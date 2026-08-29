@@ -1,0 +1,45 @@
+# Publica o FileScan.Core no GitHub Packages (registry NuGet) a cada tag de versão.
+#
+# Fluxo de release:
+#   git tag v0.2.0 && git push origin v0.2.0
+# A versão do pacote vem da TAG (v0.2.0 -> 0.2.0), sobrepondo o Version do
+# Directory.Build.props — a tag é a fonte da verdade do release.
+#
+# Publica com o GITHUB_TOKEN do próprio workflow (permissions.packages: write) —
+# nenhum PAT/secret manual é necessário.
+name: publish-nuget
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test FileScan.Tests/FileScan.Tests.csproj -c Release
+
+      - name: Pack (versão derivada da tag)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          dotnet pack FileScan.Core/FileScan.Core.csproj -c Release -o artifacts -p:Version="$VERSION"
+
+      # --no-symbols: o GitHub Packages não aceita .snupkg (símbolos ficam só no pack local).
+      - name: Push para o GitHub Packages
+        run: |
+          dotnet nuget push "artifacts/*.nupkg" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" \
+            --no-symbols \
+            --skip-duplicate

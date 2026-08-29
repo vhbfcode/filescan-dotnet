@@ -90,7 +90,17 @@ As opções são **por instância** (sem estado global): dois consumidores no me
 limites diferentes. Um motor de antivírus pode ser plugado via a interface opcional `IVirusScanner`
 — é exatamente assim que a API deste repo pluga o ClamAV.
 
-Para gerar o pacote NuGet: `dotnet pack FileScan.Core -c Release -o artifacts`.
+Para gerar o pacote NuGet localmente: `dotnet pack FileScan.Core -c Release -o artifacts`.
+
+Releases são publicados no **GitHub Packages** via tag (`git tag v0.1.0 && git push origin v0.1.0`).
+Para consumir de lá, adicione a fonte no seu `nuget.config` (o GitHub Packages exige
+autenticação mesmo para pacotes públicos — use um PAT com escopo `read:packages`):
+
+```xml
+<packageSources>
+  <add key="github-vhbfcode" value="https://nuget.pkg.github.com/vhbfcode/index.json" />
+</packageSources>
+```
 
 ---
 
