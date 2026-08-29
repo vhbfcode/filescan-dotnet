@@ -1,7 +1,4 @@
 using FileScan.Scanning;
-using Microsoft.Extensions.Options;
-using MimeDetective;
-using MimeDetective.Definitions;
 using Xunit;
 
 namespace FileScan.Tests;
@@ -9,15 +6,11 @@ namespace FileScan.Tests;
 public class StructuralValidatorTests
 {
     private static StructuralValidator Make(params string[] allowedExtensions)
-    {
-        var inspector = new ContentInspectorBuilder { Definitions = DefaultDefinitions.All() }.Build();
-        var options = Options.Create(new FileScanOptions
+        => new(new FileScannerOptions
         {
             AllowedExtensions = allowedExtensions,
             MaxFileSizeBytes = 25 * 1024 * 1024,
         });
-        return new StructuralValidator(options, inspector);
-    }
 
     [Fact]
     public void CleanPdf_Passes()

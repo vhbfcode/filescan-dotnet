@@ -19,7 +19,7 @@ namespace FileScan.Scanning;
 /// </summary>
 public static class PdfActiveContentInspector
 {
-    private const int MaxStreams = 200; // cap de DESCOMPRESSÕES por PDF (cap de bytes vem de ScanLimits)
+    private const int MaxStreams = 200; // cap de DESCOMPRESSÕES por PDF (cap de bytes vem por parâmetro)
 
     // Marcadores de conteúdo ATIVO/perigoso. Nomes de PDF são case-sensitive, então a busca é exata.
     // /OpenAction e /AA: removidos (benignos — zoom/transições — e davam FP com subset de fonte tipo
@@ -32,7 +32,8 @@ public static class PdfActiveContentInspector
         (Encoding.ASCII.GetBytes("/Launch"),       "execução de programa externo (/Launch)"),
     ];
 
-    public static IReadOnlyList<string> Inspect(byte[] content)
+    public static IReadOnlyList<string> Inspect(byte[] content,
+        long maxDecompressedBytesPerStream = FileScannerOptions.DefaultMaxDecompressedBytesPerStream)
     {
         var found = new List<string>();
         var seen = new HashSet<string>();
@@ -79,7 +80,7 @@ public static class PdfActiveContentInspector
                 if (inflations < MaxStreams)
                 {
                     inflations++;
-                    inflated = TryInflate(content, dataStart, dataEnd - dataStart);
+                    inflated = TryInflate(content, dataStart, dataEnd - dataStart, maxDecompressedBytesPerStream);
                 }
 
                 if (inflated is not null)
@@ -223,13 +224,14 @@ public static class PdfActiveContentInspector
           or (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']'
           or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%';
 
-    private static byte[]? TryInflate(byte[] data, int offset, int length)
+    private static byte[]? TryInflate(byte[] data, int offset, int length, long maxDecompressedBytes)
     {
         // FlateDecode normalmente vem com header zlib (0x78 ...); tenta zlib e cai para raw deflate.
-        return Decompress<ZLibStream>(data, offset, length) ?? Decompress<DeflateStream>(data, offset, length);
+        return Decompress<ZLibStream>(data, offset, length, maxDecompressedBytes)
+            ?? Decompress<DeflateStream>(data, offset, length, maxDecompressedBytes);
     }
 
-    private static byte[]? Decompress<T>(byte[] data, int offset, int length) where T : Stream
+    private static byte[]? Decompress<T>(byte[] data, int offset, int length, long maxDecompressedBytes) where T : Stream
     {
         try
         {
@@ -244,9 +246,9 @@ public static class PdfActiveContentInspector
             while ((read = decompressor.Read(buffer, 0, buffer.Length)) > 0)
             {
                 total += read;
-                if (total > ScanLimits.MaxDecompressedBytesPerStream)
+                if (total > maxDecompressedBytes)
                 {
-                    output.Write(buffer, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream)));
+                    output.Write(buffer, 0, (int)(read - (total - maxDecompressedBytes)));
                     break;
                 }
                 output.Write(buffer, 0, read);

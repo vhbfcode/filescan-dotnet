@@ -49,6 +49,15 @@ public sealed class FileScanOptions
         public ActiveContentAction OnDetected { get; set; } = ActiveContentAction.Reject;
     }
 
+    /// <summary>Projeção para as opções da biblioteca (FileScan.Core) — o subconjunto que o scanner usa.</summary>
+    public FileScannerOptions ToScannerOptions() => new()
+    {
+        MaxFileSizeBytes = MaxFileSizeBytes,
+        MaxDecompressedBytesPerStream = MaxDecompressedBytesPerStream,
+        AllowedExtensions = AllowedExtensions,
+        OnActiveContent = ActiveContent.OnDetected,
+    };
+
     public sealed class RateLimitOptions
     {
         /// <summary>Liga o rate limiting do endpoint /scan.</summary>
@@ -62,17 +71,4 @@ public sealed class FileScanOptions
         [Range(1, 86_400)]
         public int WindowSeconds { get; set; } = 60;
     }
-}
-
-/// <summary>Política para conteúdo ativo detectado nos arquivos.</summary>
-public enum ActiveContentAction
-{
-    /// <summary>Recusa o arquivo (Verdict = Rejected). Mais seguro.</summary>
-    Reject,
-
-    /// <summary>Deixa passar para o antivírus, mas adiciona um aviso em <c>Warnings</c>. O caller decide.</summary>
-    Flag,
-
-    /// <summary>Não inspeciona conteúdo ativo de PDF.</summary>
-    Ignore
 }

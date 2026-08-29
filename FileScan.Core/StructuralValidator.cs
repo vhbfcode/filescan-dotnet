@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Options;
 using MimeDetective;
+using MimeDetective.Definitions;
 
 namespace FileScan.Scanning;
 
@@ -8,9 +8,15 @@ namespace FileScan.Scanning;
 /// Verifica o tipo de verdade pelos bytes — não confia só na extensão — recusando binário perigoso
 /// (executável) e arquivos cujo conteúdo não bate com a extensão declarada. Complementa o scan antivírus.
 /// </summary>
-public sealed class StructuralValidator(IOptions<FileScanOptions> options, IContentInspector inspector)
+public sealed class StructuralValidator(FileScannerOptions options, IContentInspector? inspector = null)
 {
-    private readonly FileScanOptions _opt = options.Value;
+    // O build do inspector é caro (compila as definições); compartilhado entre instâncias que não
+    // injetam um próprio. Definições Default do Mime-Detective = livres para uso comercial.
+    private static readonly Lazy<IContentInspector> DefaultInspector = new(() =>
+        new ContentInspectorBuilder { Definitions = DefaultDefinitions.All() }.Build());
+
+    private readonly FileScannerOptions _opt = options;
+    private readonly IContentInspector _inspector = inspector ?? DefaultInspector.Value;
 
     /// <summary>Retorna o motivo da reprovação, ou null se passou.</summary>
     public string? Validate(string fileName, byte[] content)
@@ -28,7 +34,7 @@ public sealed class StructuralValidator(IOptions<FileScanOptions> options, ICont
             return $"extensão '.{ext}' não permitida";
 
         // Tipo real por conteúdo (base Default do Mime-Detective).
-        var detected = inspector.Inspect(content).ByFileExtension();
+        var detected = _inspector.Inspect(content).ByFileExtension();
         var topExt = detected.Length > 0 ? detected[0].Extension.ToLowerInvariant() : null;
 
         // 1) Tipo binário perigoso (executável etc.), independente da extensão.
@@ -48,7 +54,7 @@ public sealed class StructuralValidator(IOptions<FileScanOptions> options, ICont
     /// <summary>Tipo perigoso detectado por conteúdo (ex.: "exe"), ou null. Usado na inspeção de anexos embutidos.</summary>
     public string? DangerousContentType(byte[] content)
     {
-        var detected = inspector.Inspect(content).ByFileExtension();
+        var detected = _inspector.Inspect(content).ByFileExtension();
         var topExt = detected.Length > 0 ? detected[0].Extension.ToLowerInvariant() : null;
         return topExt is not null && DangerousTypes.Contains(topExt) ? topExt : null;
     }

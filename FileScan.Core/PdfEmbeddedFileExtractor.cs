@@ -9,9 +9,10 @@ namespace FileScan.Scanning;
 /// </summary>
 internal static class PdfEmbeddedFileExtractor
 {
-    private const int MaxEmbedded = 50; // cap de bytes por anexo vem de ScanLimits
+    private const int MaxEmbedded = 50; // cap de bytes por anexo vem por parâmetro
 
-    public static List<byte[]> Extract(byte[] pdf)
+    public static List<byte[]> Extract(byte[] pdf,
+        long maxDecompressedBytesPerStream = FileScannerOptions.DefaultMaxDecompressedBytesPerStream)
     {
         var results = new List<byte[]>();
         ReadOnlySpan<byte> span = pdf;
@@ -48,7 +49,8 @@ internal static class PdfEmbeddedFileExtractor
             if (dataEnd > dataStart && span[dataEnd - 1] == (byte)'\r') dataEnd--;
 
             if (dataEnd > dataStart)
-                results.Add(Inflate(pdf, dataStart, dataEnd - dataStart) ?? pdf[dataStart..dataEnd]);
+                results.Add(Inflate(pdf, dataStart, dataEnd - dataStart, maxDecompressedBytesPerStream)
+                    ?? pdf[dataStart..dataEnd]);
 
             from = e + endStreamKw.Length;
         }
@@ -57,10 +59,11 @@ internal static class PdfEmbeddedFileExtractor
     }
 
     // FlateDecode (zlib) ou raw deflate; null se não for comprimido (aí o chamador usa os bytes crus).
-    private static byte[]? Inflate(byte[] data, int offset, int length)
-        => Decompress(data, offset, length, zlib: true) ?? Decompress(data, offset, length, zlib: false);
+    private static byte[]? Inflate(byte[] data, int offset, int length, long maxDecompressedBytes)
+        => Decompress(data, offset, length, zlib: true, maxDecompressedBytes)
+            ?? Decompress(data, offset, length, zlib: false, maxDecompressedBytes);
 
-    private static byte[]? Decompress(byte[] data, int offset, int length, bool zlib)
+    private static byte[]? Decompress(byte[] data, int offset, int length, bool zlib, long maxDecompressedBytes)
     {
         try
         {
@@ -75,7 +78,7 @@ internal static class PdfEmbeddedFileExtractor
             while ((read = dec.Read(buf, 0, buf.Length)) > 0)
             {
                 total += read;
-                if (total > ScanLimits.MaxDecompressedBytesPerStream) { output.Write(buf, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream))); break; }
+                if (total > maxDecompressedBytes) { output.Write(buf, 0, (int)(read - (total - maxDecompressedBytes))); break; }
                 output.Write(buf, 0, read);
             }
 

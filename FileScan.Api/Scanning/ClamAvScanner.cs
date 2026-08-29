@@ -3,10 +3,13 @@ using nClam;
 namespace FileScan.Scanning;
 
 /// <summary>
-/// Wrapper sobre o nClam. Falha fechado: qualquer problema de comunicação vira <see cref="ScanVerdict.Error"/>.
+/// Wrapper sobre o nClam — a implementação de <see cref="IVirusScanner"/> desta API.
+/// Falha fechado: qualquer problema de comunicação vira <see cref="ScanVerdict.Error"/>.
 /// </summary>
-public sealed class ClamAvScanner(IClamClient client, ILogger<ClamAvScanner> logger)
+public sealed class ClamAvScanner(IClamClient client, ILogger<ClamAvScanner> logger) : IVirusScanner
 {
+    public string Name => "clamav";
+
     public async Task<(ScanVerdict Verdict, string? Reason)> ScanAsync(Stream content, CancellationToken ct)
     {
         try

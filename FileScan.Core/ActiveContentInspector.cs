@@ -11,13 +11,14 @@ public enum FileKind { Pdf, Ooxml, Ole2, Image, Csv, Text }
 /// </summary>
 public static class ActiveContentInspector
 {
-    private const int MaxOoxmlEntries = 512; // cap de bytes por entrada vem de ScanLimits
+    private const int MaxOoxmlEntries = 512; // cap de bytes por entrada vem por parâmetro
 
-    public static IReadOnlyList<string> Inspect(string fileName, byte[] content) =>
+    public static IReadOnlyList<string> Inspect(string fileName, byte[] content,
+        long maxDecompressedBytesPerStream = FileScannerOptions.DefaultMaxDecompressedBytesPerStream) =>
         Detect(fileName, content) switch
         {
-            FileKind.Pdf => PdfActiveContentInspector.Inspect(content),
-            FileKind.Ooxml => InspectOoxml(content),
+            FileKind.Pdf => PdfActiveContentInspector.Inspect(content, maxDecompressedBytesPerStream),
+            FileKind.Ooxml => InspectOoxml(content, maxDecompressedBytesPerStream),
             FileKind.Ole2 => InspectBinaryOffice(content),
             FileKind.Image => InspectImage(content),
             FileKind.Csv => InspectCsv(content),
@@ -149,7 +150,7 @@ public static class ActiveContentInspector
     }
 
     // --- OOXML (docx/xlsx = zip) ---
-    private static List<string> InspectOoxml(byte[] content)
+    private static List<string> InspectOoxml(byte[] content, long maxDecompressedBytesPerStream)
     {
         var found = new List<string>();
         var seen = new HashSet<string>();
@@ -169,7 +170,7 @@ public static class ActiveContentInspector
                 if ((name.Contains("/embeddings/") || name.Contains("oleobject")) && seen.Add("ooxml-ole"))
                     found.Add("objeto OLE embutido");
 
-                var data = ReadEntry(entry);
+                var data = ReadEntry(entry, maxDecompressedBytesPerStream);
                 if (data.Length == 0) continue;
 
                 var lower = ActiveContentMarkers.ToLowerAscii(data);
@@ -187,7 +188,7 @@ public static class ActiveContentInspector
         return found;
     }
 
-    private static byte[] ReadEntry(ZipArchiveEntry entry)
+    private static byte[] ReadEntry(ZipArchiveEntry entry, long maxDecompressedBytes)
     {
         try
         {
@@ -198,9 +199,9 @@ public static class ActiveContentInspector
             while ((read = es.Read(buf, 0, buf.Length)) > 0)
             {
                 total += read;
-                if (total > ScanLimits.MaxDecompressedBytesPerStream)
+                if (total > maxDecompressedBytes)
                 {
-                    outMs.Write(buf, 0, (int)(read - (total - ScanLimits.MaxDecompressedBytesPerStream)));
+                    outMs.Write(buf, 0, (int)(read - (total - maxDecompressedBytes)));
                     break;
                 }
                 outMs.Write(buf, 0, read);

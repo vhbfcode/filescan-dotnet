@@ -8,8 +8,6 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
-using MimeDetective;
-using MimeDetective.Definitions;
 using nClam;
 using Serilog;
 
@@ -50,8 +48,6 @@ builder.Services.AddOptions<FileScanOptions>()
 // --- Limites de tamanho (configuráveis via FileScan:*) ---
 var maxFileBytes = builder.Configuration.GetValue<long?>($"{FileScanOptions.SectionName}:MaxFileSizeBytes") ?? 25L * 1024 * 1024;
 var maxRequestBytes = maxFileBytes + 1024 * 1024; // +1 MB de margem para o overhead do multipart
-ScanLimits.MaxDecompressedBytesPerStream =
-    builder.Configuration.GetValue<long?>($"{FileScanOptions.SectionName}:MaxDecompressedBytesPerStream") ?? 16L * 1024 * 1024;
 
 // O teto do request segue o tamanho máximo do arquivo (não fica hardcoded no controller).
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = maxRequestBytes);
@@ -97,13 +93,19 @@ builder.Services.AddSingleton<IClamClient>(sp =>
     };
 });
 
-// Mime-Detective: detecção de tipo real por conteúdo (definições Default — livres p/ uso comercial).
-builder.Services.AddSingleton<IContentInspector>(_ =>
-    new ContentInspectorBuilder { Definitions = DefaultDefinitions.All() }.Build());
-
-builder.Services.AddSingleton<StructuralValidator>();
+// --- Núcleo de validação (FileScan.Core) — options por instância derivadas da config da API ---
+builder.Services.AddSingleton<FileScannerOptions>(sp =>
+    sp.GetRequiredService<IOptions<FileScanOptions>>().Value.ToScannerOptions());
+builder.Services.AddSingleton<StructuralValidator>(sp =>
+    new StructuralValidator(sp.GetRequiredService<FileScannerOptions>()));
 builder.Services.AddSingleton<ClamAvScanner>();
-builder.Services.AddSingleton<FileScanService>();
+builder.Services.AddSingleton<FileScanService>(sp => new FileScanService(
+    sp.GetRequiredService<FileScannerOptions>(),
+    sp.GetRequiredService<StructuralValidator>(),
+    // ClamAV desligado = scanner de vírus nulo: rodam só as camadas estrutural + conteúdo ativo.
+    sp.GetRequiredService<IOptions<FileScanOptions>>().Value.ClamAv.Enabled
+        ? sp.GetRequiredService<ClamAvScanner>()
+        : null));
 
 var app = builder.Build();
 

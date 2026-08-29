@@ -2,7 +2,7 @@
 
 # FileScan
 
-![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen)
 
 Um pequeno **microsserviço de validação de arquivos**: você entrega um upload e ele diz se o arquivo
 é **malicioso ou não** — pensado para ficar na frente de apps existentes com uma única chamada HTTP
@@ -21,13 +21,15 @@ injeção multi-formato — as alternativas são CDR comercial ou ferramentas de
   em CSV (OWASP), imagens polyglot — e **inspeção recursiva de anexos de PDF** (um XML embutido
   benigno passa; um `.exe` embutido é pego).
 - **Verificação do tipo real** por conteúdo / magic bytes (Mime-Detective), não só pela extensão.
+- **Reutilizável como biblioteca** — o motor de validação é uma class library independente
+  (`FileScan.Core`): referencie direto de qualquer app .NET, sem chamada de API e sem ClamAV.
 - **Sem container** — a camada de antivírus ClamAV é opcional; desligada, o serviço é .NET puro e
   faz deploy como qualquer app web comum.
 - **Validado em documentos reais — zero falso-positivo** — dezenas de arquivos reais (PDFs de
   seguro, documentos Office, imagens) passam limpos após ajuste de falso-positivo.
 - **Pensado em segurança** — fail-closed, rate limiting por cliente ligado por padrão, Swagger só em
   Development, auth opcional por API key (constant-time), limites de tamanho/descompressão configuráveis.
-- **40 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
+- **44 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
 
 > ⚠️ **Aviso / Escopo:** o FileScan faz **detecção heurística** de conteúdo malicioso/injeção.
 > **Não é** um produto de CDR certificado, **não substitui** um antivírus completo nem uma solução
@@ -61,6 +63,32 @@ Três camadas de validação, em ordem:
 
 > O **ClamAV é opcional** (`FileScan:ClamAv:Enabled`): desligado, o serviço roda só as camadas
 > estrutural + conteúdo ativo — **sem container/daemon**.
+
+---
+
+## Uso como biblioteca (`FileScan.Core`)
+
+O motor de validação vive em **`FileScan.Core`**, uma class library pura com uma única dependência
+(Mime-Detective) — sem ClamAV, sem ASP.NET, sem daemon. Qualquer projeto .NET pode referenciá-la e
+validar uploads in-process, sem chamar uma API:
+
+```csharp
+using FileScan.Scanning;
+
+var scanner = new FileScanService(new FileScannerOptions
+{
+    AllowedExtensions = ["pdf", "docx", "xlsx", "csv", "jpg", "png"],
+    // MaxFileSizeBytes / MaxDecompressedBytesPerStream / OnActiveContent — opções por instância
+});
+
+ScanResponse result = await scanner.ScanAsync(fileName, bytes);
+if (result.Verdict != ScanVerdict.Clean)
+    // rejeitar o upload (result.Reason diz o porquê)
+```
+
+As opções são **por instância** (sem estado global): dois consumidores no mesmo processo podem usar
+limites diferentes. Um motor de antivírus pode ser plugado via a interface opcional `IVirusScanner`
+— é exatamente assim que a API deste repo pluga o ClamAV.
 
 ---
 
