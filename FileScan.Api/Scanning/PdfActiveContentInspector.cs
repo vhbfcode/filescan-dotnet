@@ -8,13 +8,18 @@ namespace FileScan.Scanning;
 /// um PDF "armado" (JavaScript, ações automáticas, anexos, execução externa) — a classe que
 /// o AV por assinatura não pega quando o payload é novo/personalizado.
 ///
-/// Olha tanto os bytes crus (PDF sem compressão) quanto os streams FlateDecode descomprimidos
-/// (cobre object streams / conteúdo comprimido). Limitações conscientes: PDFs criptografados
-/// e filtros exóticos (LZW, encadeamentos) podem escapar — aí a resposta é CDR.
+/// O arquivo é segmentado: as regiões ESTRUTURAIS (dicionários/objetos, onde os nomes ativos
+/// realmente moram) são varridas cruas; os corpos de stream são SEMPRE descomprimidos antes de
+/// qualquer validação — bytes comprimidos nunca são julgados crus, porque dados comprimidos são
+/// estatisticamente aleatórios e produzem falsos positivos (um "/JS" por acaso, ou um "#XX" que a
+/// normalização de nomes sintetizaria em marcador). Corpo que não descomprime: sem /Filter
+/// declarado é literal e é varrido cru; com /Filter (não-Flate/criptografado) é ilegível e não é
+/// inspecionado. Limitações conscientes: PDFs criptografados e filtros exóticos (LZW,
+/// encadeamentos) podem escapar — aí a resposta é CDR.
 /// </summary>
 public static class PdfActiveContentInspector
 {
-    private const int MaxStreams = 200; // guarda contra PDF gigante (cap de bytes vem de ScanLimits)
+    private const int MaxStreams = 200; // cap de DESCOMPRESSÕES por PDF (cap de bytes vem de ScanLimits)
 
     // Marcadores de conteúdo ATIVO/perigoso. Nomes de PDF são case-sensitive, então a busca é exata.
     // /OpenAction e /AA: removidos (benignos — zoom/transições — e davam FP com subset de fonte tipo
@@ -32,22 +37,85 @@ public static class PdfActiveContentInspector
         var found = new List<string>();
         var seen = new HashSet<string>();
 
-        // 1) bytes crus (normalizados: #XX dentro de nomes PDF são decodificados)
-        var normalized = NormalizePdfNames(content);
-        ScanInto(normalized, found, seen);
+        ReadOnlySpan<byte> span = content;
+        ReadOnlySpan<byte> streamKw = "stream"u8;
+        ReadOnlySpan<byte> endKw = "endstream"u8;
 
-        // 2) streams comprimidos descomprimidos (cada um também normalizado)
-        if (seen.Count < Markers.Length)
+        int pos = 0;       // início da região estrutural corrente
+        int inflations = 0; // descompressões tentadas (cap de CPU)
+
+        while (seen.Count < Markers.Length)
         {
-            foreach (var inflated in InflateStreams(content))
+            // Próximo "stream" real (ignora o sufixo de "endstream").
+            int s = IndexOf(span, streamKw, pos);
+            while (s >= 3 && span[s - 1] == (byte)'d' && span[s - 2] == (byte)'n' && span[s - 3] == (byte)'e')
+                s = IndexOf(span, streamKw, s + streamKw.Length);
+            if (s < 0) break; // sem mais streams: o resto é estrutural
+
+            int segStart = pos;
+            int dataStart = s + streamKw.Length;
+            if (dataStart < span.Length && span[dataStart] == (byte)'\r') dataStart++;
+            if (dataStart < span.Length && span[dataStart] == (byte)'\n') dataStart++;
+
+            // Região estrutural até o início do corpo (inclui o dicionário do stream).
+            ScanRegion(span[segStart..Math.Min(dataStart, span.Length)], found, seen);
+
+            int e = IndexOf(span, endKw, dataStart);
+            if (e < 0)
             {
-                var normalizedInflated = NormalizePdfNames(inflated);
-                ScanInto(normalizedInflated, found, seen);
-                if (seen.Count == Markers.Length) break;
+                // "stream" sem "endstream" (truncado/malformado): falha para o lado da DETECÇÃO —
+                // varre o restante cru em vez de ignorá-lo.
+                ScanRegion(span[dataStart..], found, seen);
+                return found;
             }
+
+            int dataEnd = e;
+            if (dataEnd > dataStart && span[dataEnd - 1] == (byte)'\n') dataEnd--;
+            if (dataEnd > dataStart && span[dataEnd - 1] == (byte)'\r') dataEnd--;
+
+            if (dataEnd > dataStart)
+            {
+                byte[]? inflated = null;
+                if (inflations < MaxStreams)
+                {
+                    inflations++;
+                    inflated = TryInflate(content, dataStart, dataEnd - dataStart);
+                }
+
+                if (inflated is not null)
+                    ScanRegion(inflated, found, seen); // conteúdo real, descomprimido
+                else if (!HasDeclaredFilter(span, segStart, s))
+                    ScanRegion(span[dataStart..dataEnd], found, seen); // stream literal (sem filtro)
+                // senão: /Filter não-Flate ou criptografado — bytes codificados não são
+                // interpretáveis; julgá-los crus só produz falso positivo (limitação documentada).
+            }
+
+            pos = e + endKw.Length;
         }
 
+        // Região estrutural final (trailer/xref — ou o arquivo inteiro, se não há streams).
+        if (seen.Count < Markers.Length && pos < span.Length)
+            ScanRegion(span[pos..], found, seen);
+
         return found;
+    }
+
+    private static void ScanRegion(ReadOnlySpan<byte> data, List<string> found, HashSet<string> seen)
+        => ScanInto(NormalizePdfNames(data), found, seen);
+
+    /// <summary>
+    /// O dicionário do stream declara /Filter? Procura no trecho entre o último "obj" antes do
+    /// "stream" e o próprio "stream" (normalizado — /F#69lter também conta). Sem /Filter, o corpo
+    /// é literal e deve ser varrido cru; em dúvida (malformado), responde false — falha para o
+    /// lado da detecção.
+    /// </summary>
+    private static bool HasDeclaredFilter(ReadOnlySpan<byte> span, int segStart, int streamKwStart)
+    {
+        if (streamKwStart <= segStart) return false;
+        var window = span[segStart..streamKwStart];
+        int objIdx = window.LastIndexOf("obj"u8);
+        if (objIdx >= 0) window = window[objIdx..];
+        return ContainsNameToken(NormalizePdfNames(window), "/Filter"u8);
     }
 
     /// <summary>
@@ -154,49 +222,6 @@ public static class PdfActiveContentInspector
         b is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n' or 0x0C or 0x00
           or (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']'
           or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%';
-
-    private static List<byte[]> InflateStreams(byte[] content)
-    {
-        var results = new List<byte[]>();
-        ReadOnlySpan<byte> span = content;
-        ReadOnlySpan<byte> streamKw = "stream"u8;
-        ReadOnlySpan<byte> endKw = "endstream"u8;
-
-        int i = 0;
-        while (results.Count < MaxStreams)
-        {
-            int s = IndexOf(span, streamKw, i);
-            if (s < 0) break;
-
-            // ignora o "stream" que faz parte de "endstream"
-            if (s >= 3 && span[s - 1] == (byte)'d' && span[s - 2] == (byte)'n' && span[s - 3] == (byte)'e')
-            {
-                i = s + streamKw.Length;
-                continue;
-            }
-
-            int dataStart = s + streamKw.Length;
-            if (dataStart < span.Length && span[dataStart] == (byte)'\r') dataStart++;
-            if (dataStart < span.Length && span[dataStart] == (byte)'\n') dataStart++;
-
-            int e = IndexOf(span, endKw, dataStart);
-            if (e < 0) break;
-
-            int dataEnd = e;
-            if (dataEnd > dataStart && span[dataEnd - 1] == (byte)'\n') dataEnd--;
-            if (dataEnd > dataStart && span[dataEnd - 1] == (byte)'\r') dataEnd--;
-
-            if (dataEnd > dataStart)
-            {
-                var inflated = TryInflate(content, dataStart, dataEnd - dataStart);
-                if (inflated is not null) results.Add(inflated);
-            }
-
-            i = e + endKw.Length;
-        }
-
-        return results;
-    }
 
     private static byte[]? TryInflate(byte[] data, int offset, int length)
     {

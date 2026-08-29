@@ -65,20 +65,30 @@ origem da aplicação reintroduz o risco de stored XSS que o FileScan reduziu.
 These are conscious gaps in the heuristic layer; ClamAV (when enabled) and the caller
 responsibilities above are the complementary layers.
 
-- **Non-Flate stream filters.** Active-content scanning covers raw bytes and
-  **FlateDecode** streams. JavaScript hidden behind other filters (ASCIIHex, ASCII85,
-  LZW, or chained filters) or inside an **encrypted** PDF is not inspected. Full
-  coverage of these cases requires CDR or a sandbox.
+- **Non-Flate stream filters.** PDF scanning covers the structural regions
+  (dictionaries/objects, scanned raw) plus stream bodies that are either literal
+  (no `/Filter`) or **FlateDecode** (always decompressed and scanned inflated —
+  compressed bytes are never judged raw, since random compressed data produces
+  false positives). JavaScript hidden behind other filters (ASCIIHex, ASCII85,
+  LZW, or chained filters) or inside an **encrypted** PDF is not inspected —
+  those bodies are skipped as uninterpretable. A crafted xref pointing into such
+  a skipped body could hide an object from the heuristic. Full coverage of these
+  cases requires CDR or a sandbox.
 
 ### Evasões conhecidas / limitações — pt-BR
 
 São lacunas conscientes da camada heurística; o ClamAV (quando habilitado) e as
 responsabilidades de quem chama (acima) são as camadas complementares.
 
-- **Filtros de stream não-Flate.** O scan de conteúdo ativo cobre os bytes crus e os
-  streams **FlateDecode**. JavaScript escondido atrás de outros filtros (ASCIIHex,
-  ASCII85, LZW ou filtros encadeados) ou dentro de um PDF **criptografado** não é
-  inspecionado. Cobertura total desses casos exige CDR ou sandbox.
+- **Filtros de stream não-Flate.** O scan de PDF cobre as regiões estruturais
+  (dicionários/objetos, varridas cruas) e os corpos de stream literais (sem `/Filter`)
+  ou **FlateDecode** (sempre descomprimidos e varridos inflados — bytes comprimidos
+  nunca são julgados crus, porque dados comprimidos aleatórios geram falso positivo).
+  JavaScript escondido atrás de outros filtros (ASCIIHex, ASCII85, LZW ou filtros
+  encadeados) ou dentro de um PDF **criptografado** não é inspecionado — esses corpos
+  são pulados como ilegíveis. Um xref forjado apontando para dentro de um corpo pulado
+  pode esconder um objeto da heurística. Cobertura total desses casos exige CDR ou
+  sandbox.
 
 ## Reporting a vulnerability
 

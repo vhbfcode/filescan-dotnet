@@ -2,7 +2,7 @@
 
 # FileScan
 
-![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen)
 
 Um pequeno **microsserviço de validação de arquivos**: você entrega um upload e ele diz se o arquivo
 é **malicioso ou não** — pensado para ficar na frente de apps existentes com uma única chamada HTTP
@@ -27,7 +27,7 @@ injeção multi-formato — as alternativas são CDR comercial ou ferramentas de
   seguro, documentos Office, imagens) passam limpos após ajuste de falso-positivo.
 - **Pensado em segurança** — fail-closed, rate limiting por cliente ligado por padrão, Swagger só em
   Development, auth opcional por API key (constant-time), limites de tamanho/descompressão configuráveis.
-- **36 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
+- **40 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
 
 > ⚠️ **Aviso / Escopo:** o FileScan faz **detecção heurística** de conteúdo malicioso/injeção.
 > **Não é** um produto de CDR certificado, **não substitui** um antivírus completo nem uma solução

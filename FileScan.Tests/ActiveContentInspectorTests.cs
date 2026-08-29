@@ -77,6 +77,29 @@ public class ActiveContentInspectorTests
         // '#' fora de um nome PDF não deve ser decodificado e não deve gerar FP
         => Assert.Empty(ActiveContentInspector.Inspect("x.pdf", Samples.PdfWithHashInBinaryStream()));
 
+    // --- Segmentação stream × estrutural (bug real: FP em bytes comprimidos) ---
+
+    [Fact]
+    public void PdfWithCompressedNoiseLookingLikeJs_IsNotFalsePositive()
+        // Bytes comprimidos (não interpretáveis) contendo "/JS" e "/#4A#53" por acaso: o corpo do
+        // stream declara /Filter e não descomprime — não pode ser julgado cru (era o FP relatado)
+        => Assert.Empty(ActiveContentInspector.Inspect("x.pdf", Samples.PdfWithCompressedNoiseLookingLikeJs()));
+
+    [Fact]
+    public void PdfWithJavaScriptOnlyInsideFlateStream_IsDetected()
+        // O marcador existe SÓ dentro do stream FlateDecode: exige descomprimir e varrer o inflado
+        => Assert.NotEmpty(ActiveContentInspector.Inspect("x.pdf", Samples.PdfWithJavaScriptOnlyInsideFlateStream()));
+
+    [Fact]
+    public void PdfWithJavaScriptInUnfilteredStream_IsDetected()
+        // Stream sem /Filter é literal: o corpo cru continua varrido
+        => Assert.NotEmpty(ActiveContentInspector.Inspect("x.pdf", Samples.PdfWithJavaScriptInUnfilteredStream()));
+
+    [Fact]
+    public void PdfTruncatedStream_MarkerAfterStreamKeyword_IsDetected()
+        // "stream" sem "endstream": falha para o lado da detecção (varre o restante cru)
+        => Assert.NotEmpty(ActiveContentInspector.Inspect("x.pdf", Samples.PdfTruncatedStreamWithJavaScriptAfter()));
+
     [Fact]
     public void PdfWithInvalidHashEscapeInName_NoCrash_NoFalsePositive()
         // '#' dentro de nome sem dois hex-dígitos deve ser copiado literalmente: sem crash, sem FP

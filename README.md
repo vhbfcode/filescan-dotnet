@@ -2,7 +2,7 @@
 
 # FileScan
 
-![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![License](https://img.shields.io/badge/license-MIT-blue) ![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen)
 
 A small **file-validation microservice**: hand it an uploaded file and it tells you whether the file
 is **malicious or not** — designed to sit in front of existing apps with a single HTTP call before
@@ -27,7 +27,7 @@ alternatives are commercial CDR products or language-specific tools.
   PDFs, Office documents, images) pass cleanly after false-positive tuning.
 - **Security-minded** — fail-closed semantics, per-client rate limiting on by default, Swagger gated
   to Development, optional constant-time API-key auth, configurable size/decompression limits.
-- **36 automated tests** (xUnit) with inputs generated in code — `dotnet test`, no Docker needed.
+- **40 automated tests** (xUnit) with inputs generated in code — `dotnet test`, no Docker needed.
 
 > ⚠️ **Notice / Scope:** FileScan performs **heuristic detection** of malicious / script-injection
 > content. It is **not** a certified CDR product, it does **not** replace a full antivirus or a

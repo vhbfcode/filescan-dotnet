@@ -80,6 +80,57 @@ internal static class Samples
         return Concat(head, binaryData, tail);
     }
 
+    // Bug real relatado: bytes COMPRIMIDOS (aleatórios) contendo por acaso a sequência "/JS" + delimitador
+    // e também "/#4A#53" (que a normalização de nomes sintetizaria em "/JS"). O stream declara
+    // /Filter/FlateDecode mas o corpo não é deflate válido — simula o caso em que a descompressão
+    // falha e os bytes crus eram julgados. NÃO pode dar falso positivo.
+    public static byte[] PdfWithCompressedNoiseLookingLikeJs()
+    {
+        var noise = Concat(
+            [0x1F, 0x8B, 0x42, (byte)'/', (byte)'J', (byte)'S', 0x00, 0x9C, 0xE1],
+            [(byte)'/', (byte)'#', (byte)'4', (byte)'A', (byte)'#', (byte)'5', (byte)'3', 0x00, 0x77]);
+        var head = A(
+            "%PDF-1.4\n" +
+            "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
+            $"2 0 obj<</Filter/FlateDecode/Length {noise.Length}>>\nstream\n");
+        var tail = A("\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF");
+        return Concat(head, noise, tail);
+    }
+
+    // PDF cujo /JavaScript existe SOMENTE dentro de um stream FlateDecode válido (ex.: object stream):
+    // só é detectado se o inspetor descomprimir e varrer o conteúdo inflado.
+    public static byte[] PdfWithJavaScriptOnlyInsideFlateStream()
+    {
+        var payload = A("7 0 obj<</S/JavaScript/JS (app.alert\\('x'\\))>>endobj");
+        using var ms = new MemoryStream();
+        using (var z = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+            z.Write(payload, 0, payload.Length);
+        var deflated = ms.ToArray();
+
+        var head = A(
+            "%PDF-1.5\n" +
+            "1 0 obj<</Type/Catalog>>endobj\n" +
+            $"2 0 obj<</Type/ObjStm/Filter/FlateDecode/Length {deflated.Length}>>\nstream\n");
+        var tail = A("\nendstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF");
+        return Concat(head, deflated, tail);
+    }
+
+    // Stream SEM /Filter (corpo literal) carregando o marcador: o corpo cru deve continuar varrido.
+    public static byte[] PdfWithJavaScriptInUnfilteredStream() => A(
+        "%PDF-1.4\n" +
+        "1 0 obj<</Type/Catalog>>endobj\n" +
+        "2 0 obj<</Type/ObjStm/Length 52>>\nstream\n" +
+        "7 0 obj<</S/JavaScript/JS (app.alert\\('x'\\))>>endobj\n" +
+        "endstream\nendobj\ntrailer<</Root 1 0 R>>\n%%EOF");
+
+    // "stream" sem "endstream" (truncado/malformado) com o marcador depois: falha para o lado da
+    // detecção — o restante do arquivo é varrido cru.
+    public static byte[] PdfTruncatedStreamWithJavaScriptAfter() => A(
+        "%PDF-1.4\n" +
+        "1 0 obj<</Type/Catalog>>endobj\n" +
+        "2 0 obj<</Filter/FlateDecode/Length 999>>\nstream\n" +
+        "3 0 obj<</S/JavaScript/JS (app.alert\\('x'\\))>>endobj\n%%EOF");
+
     // PDF com '#' dentro de um nome que NÃO é seguido de dois hex-dígitos: deve ser literal (sem crash)
     public static byte[] PdfWithInvalidHashEscapeInName() => A(
         "%PDF-1.4\n" +
