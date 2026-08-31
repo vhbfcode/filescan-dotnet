@@ -1,12 +1,16 @@
-# Publica o FileScan.Core no GitHub Packages (registry NuGet) a cada tag de versão.
+# Publica o FileScan.Core no GitHub Packages E no nuget.org a cada tag de versão.
 #
 # Fluxo de release:
 #   git tag v0.2.0 && git push origin v0.2.0
 # A versão do pacote vem da TAG (v0.2.0 -> 0.2.0), sobrepondo o Version do
 # Directory.Build.props — a tag é a fonte da verdade do release.
 #
-# Publica com o GITHUB_TOKEN do próprio workflow (permissions.packages: write) —
-# nenhum PAT/secret manual é necessário.
+# Sem nenhum secret manual:
+# - GitHub Packages: GITHUB_TOKEN do próprio workflow (permissions.packages: write).
+# - nuget.org: Trusted Publishing (OIDC) — permissions.id-token: write emite o token
+#   OIDC, e a action NuGet/login o troca por uma API key efêmera (~1h) validada
+#   contra a policy cadastrada no perfil do nuget.org (owner=vhbfcode,
+#   repo=filescan-dotnet, workflow=publish-nuget.yml). Sem chave de longa duração.
 name: publish-nuget
 
 on:
@@ -16,6 +20,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write # OIDC para o Trusted Publishing do nuget.org
 
 jobs:
   publish:
@@ -35,11 +40,27 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           dotnet pack FileScan.Core/FileScan.Core.csproj -c Release -o artifacts -p:Version="$VERSION"
 
-      # --no-symbols: o GitHub Packages não aceita .snupkg (símbolos ficam só no pack local).
+      # --no-symbols: o GitHub Packages não aceita .snupkg (símbolos vão só ao nuget.org).
       - name: Push para o GitHub Packages
         run: |
           dotnet nuget push "artifacts/*.nupkg" \
             --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --no-symbols \
+            --skip-duplicate
+
+      # Troca o token OIDC do job por uma API key efêmera do nuget.org (válida ~1h,
+      # uso único). Pedida logo antes do push, como a doc recomenda.
+      - name: NuGet login (Trusted Publishing / OIDC)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: vhbf # username (perfil) do nuget.org dono da policy
+
+      # O .snupkg de símbolos é enviado automaticamente junto (nuget.org aceita).
+      - name: Push para o nuget.org
+        run: |
+          dotnet nuget push "artifacts/*.nupkg" \
+            --source "https://api.nuget.org/v3/index.json" \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
             --skip-duplicate

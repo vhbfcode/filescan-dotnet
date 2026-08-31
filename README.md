@@ -92,15 +92,16 @@ exactly how this repo's API plugs ClamAV in.
 
 To produce the NuGet package locally: `dotnet pack FileScan.Core -c Release -o artifacts`.
 
-Releases are published to **GitHub Packages** by tagging (`git tag v0.1.0 && git push origin v0.1.0`).
-To consume from there, add the source to your `nuget.config` (GitHub Packages requires
-authentication even for public packages — use a PAT with the `read:packages` scope):
+Releases are published by tagging (`git tag v0.2.0 && git push origin v0.2.0`) to
+**[nuget.org](https://www.nuget.org/packages/FileScan.Core)** (via Trusted Publishing / OIDC —
+no long-lived keys) and to **GitHub Packages**. Consuming from nuget.org needs no setup:
 
-```xml
-<packageSources>
-  <add key="github-vhbfcode" value="https://nuget.pkg.github.com/vhbfcode/index.json" />
-</packageSources>
+```bash
+dotnet add package FileScan.Core
 ```
+
+GitHub Packages (`https://nuget.pkg.github.com/vhbfcode/index.json`) remains as a mirror; it
+requires authentication even for public packages (PAT with `read:packages`).
 
 ---
 

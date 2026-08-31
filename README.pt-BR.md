@@ -92,15 +92,16 @@ limites diferentes. Um motor de antivírus pode ser plugado via a interface opci
 
 Para gerar o pacote NuGet localmente: `dotnet pack FileScan.Core -c Release -o artifacts`.
 
-Releases são publicados no **GitHub Packages** via tag (`git tag v0.1.0 && git push origin v0.1.0`).
-Para consumir de lá, adicione a fonte no seu `nuget.config` (o GitHub Packages exige
-autenticação mesmo para pacotes públicos — use um PAT com escopo `read:packages`):
+Releases são publicados via tag (`git tag v0.2.0 && git push origin v0.2.0`) no
+**[nuget.org](https://www.nuget.org/packages/FileScan.Core)** (via Trusted Publishing / OIDC —
+sem chave de longa duração) e no **GitHub Packages**. Consumir do nuget.org não exige setup:
 
-```xml
-<packageSources>
-  <add key="github-vhbfcode" value="https://nuget.pkg.github.com/vhbfcode/index.json" />
-</packageSources>
+```bash
+dotnet add package FileScan.Core
 ```
+
+O GitHub Packages (`https://nuget.pkg.github.com/vhbfcode/index.json`) fica como espelho; ele
+exige autenticação mesmo para pacotes públicos (PAT com `read:packages`).
 
 ---
 
