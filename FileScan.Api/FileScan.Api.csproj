@@ -10,6 +10,8 @@
     <PackageReference Include="nClam" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
+    <!-- Levanta o Microsoft.OpenApi transitivo do Swashbuckle para a versão sem advisory (NU1903). -->
+    <PackageReference Include="Microsoft.OpenApi" />
   </ItemGroup>
 
   <ItemGroup>

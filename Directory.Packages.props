@@ -16,11 +16,19 @@
     <!-- Detecção de tipo real por conteúdo (magic bytes). Definições Default = livres p/ uso comercial. -->
     <PackageVersion Include="Mime-Detective" Version="25.8.1" />
 
+    <!-- Parser estrutural PDF Apache-2.0: xref/trailer, referências indiretas, object streams,
+         filtros e arquivos embutidos. O FileScan o envolve com limites fail-closed próprios. -->
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
+
     <!-- Logging estruturado (mesmo baseline do portfólio) -->
     <PackageVersion Include="Serilog.AspNetCore" Version="9.0.0" />
 
     <!-- Swagger / OpenAPI UI -->
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+
+    <!-- Referência direta só para levantar o transitivo vulnerável do Swashbuckle
+         (GHSA-v5pm-xwqc-g5wc: High em <= 2.7.4; corrigido em 2.7.5). -->
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
 
     <!-- Testes -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

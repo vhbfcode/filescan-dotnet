@@ -13,6 +13,18 @@ public class StructuralValidatorTests
         });
 
     [Fact]
+    public void OptionsMutatedAfterConstruction_DoNotChangeStructuralPolicy()
+    {
+        var options = new FileScannerOptions { AllowedExtensions = ["pdf"] };
+        var validator = new StructuralValidator(options);
+        options.AllowedExtensions = ["txt"];
+        options.MaxFileSizeBytes = 1;
+
+        Assert.Null(validator.Validate("x.pdf", Samples.CleanPdf()));
+        Assert.Contains("não permitida", validator.Validate("x.txt", Samples.CleanPdf()));
+    }
+
+    [Fact]
     public void CleanPdf_Passes()
         => Assert.Null(Make().Validate("x.pdf", Samples.CleanPdf()));
 

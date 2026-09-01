@@ -11,7 +11,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FileScan</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Gate fail-closed da cadeia de dependências: indisponibilidade dos dados (NU1900), advisory
+    High (NU1903) ou Critical (NU1904), direto OU transitivo (NuGetAuditMode=all), vira ERRO de
+    restore/build antes de qualquer pack/push. Moderate/Low continuam warnings.
+  -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1900;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace FileScan.Controllers;
 
 /// <summary>
-/// Validação de arquivos: recebe um upload e devolve se é malicioso ou não.
+/// Validação de arquivos: recebe um upload e devolve um veredito fail-closed de persistência.
 /// </summary>
 /// <remarks>
 /// Contrato para quem chama: persistir o arquivo somente se <b>HTTP 200</b> e <c>verdict == "Clean"</c>.
-/// Qualquer outra combinação (Malicious, Rejected, ou 503/Error) = não persistir (fail-closed).
+/// Qualquer outra combinação (Malicious, Rejected, ActiveContentDetected, NotInspected, ou
+/// 503/Error) = não persistir (fail-closed).
 /// </remarks>
 [ApiController]
 [Route("scan")]
@@ -18,7 +19,8 @@ namespace FileScan.Controllers;
 public sealed class ScanController(FileScanService scanner) : ControllerBase
 {
     /// <summary>Valida um arquivo enviado em multipart/form-data (campo "file").</summary>
-    /// <response code="200">Veredito definitivo: Clean, Malicious ou Rejected.</response>
+    /// <response code="200">Veredito: Clean, Malicious, Rejected, ActiveContentDetected ou
+    /// NotInspected. Somente Clean é persistível.</response>
     /// <response code="400">Nenhum arquivo enviado.</response>
     /// <response code="503">Não foi possível escanear (ex.: ClamAV indisponível) — falhe fechado.</response>
     [HttpPost]

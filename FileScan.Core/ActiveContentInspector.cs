@@ -11,19 +11,35 @@ public enum FileKind { Pdf, Ooxml, Ole2, Image, Csv, Text }
 /// </summary>
 public static class ActiveContentInspector
 {
-    private const int MaxOoxmlEntries = 512; // cap de bytes por entrada vem por parâmetro
-
-    public static IReadOnlyList<string> Inspect(string fileName, byte[] content,
-        long maxDecompressedBytesPerStream = FileScannerOptions.DefaultMaxDecompressedBytesPerStream) =>
-        Detect(fileName, content) switch
+    public static InspectionResult Inspect(string fileName, byte[] content,
+        long maxDecompressedBytesPerStream = FileScannerOptions.DefaultMaxDecompressedBytesPerStream)
+    {
+        var options = new FileScannerOptions
         {
-            FileKind.Pdf => PdfActiveContentInspector.Inspect(content, maxDecompressedBytesPerStream),
-            FileKind.Ooxml => InspectOoxml(content, maxDecompressedBytesPerStream),
-            FileKind.Ole2 => InspectBinaryOffice(content),
-            FileKind.Image => InspectImage(content),
-            FileKind.Csv => InspectCsv(content),
-            _ => InspectText(content),
+            MaxDecompressedBytesPerStream = maxDecompressedBytesPerStream,
+            MaxTotalDecompressedBytes = Math.Max(
+                FileScannerOptions.DefaultMaxTotalDecompressedBytes,
+                maxDecompressedBytesPerStream),
         };
+        options.Validate();
+        return Inspect(fileName, content, new ScanBudget(options));
+    }
+
+    internal static InspectionResult Inspect(string fileName, byte[] content, ScanBudget budget)
+    {
+        budget.ThrowIfCancellationRequested();
+        InspectionResult result = Detect(fileName, content) switch
+        {
+            FileKind.Pdf => PdfActiveContentInspector.Inspect(content, budget),
+            FileKind.Ooxml => InspectOoxml(content, budget),
+            FileKind.Ole2 => new InspectionResult(InspectBinaryOffice(content), []),
+            FileKind.Image => new InspectionResult(InspectImage(content), []),
+            FileKind.Csv => new InspectionResult(InspectCsv(content), []),
+            _ => new InspectionResult(InspectText(content), []),
+        };
+        budget.ThrowIfCancellationRequested();
+        return result;
+    }
 
     public static FileKind Detect(string fileName, ReadOnlySpan<byte> c)
     {
@@ -150,19 +166,20 @@ public static class ActiveContentInspector
     }
 
     // --- OOXML (docx/xlsx = zip) ---
-    private static List<string> InspectOoxml(byte[] content, long maxDecompressedBytesPerStream)
+    private static InspectionResult InspectOoxml(byte[] content, ScanBudget budget)
     {
         var found = new List<string>();
         var seen = new HashSet<string>();
+        var incomplete = new List<string>();
         try
         {
             using var ms = new MemoryStream(content, writable: false);
             using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
 
-            int count = 0;
             foreach (var entry in zip.Entries)
             {
-                if (++count > MaxOoxmlEntries) break;
+                budget.ThrowIfCancellationRequested();
+                budget.ConsumeEntry("entrada OOXML");
                 var name = entry.FullName.ToLowerInvariant();
 
                 if (name.Contains("vbaproject") && seen.Add("ooxml-macro"))
@@ -170,7 +187,9 @@ public static class ActiveContentInspector
                 if ((name.Contains("/embeddings/") || name.Contains("oleobject")) && seen.Add("ooxml-ole"))
                     found.Add("objeto OLE embutido");
 
-                var data = ReadEntry(entry, maxDecompressedBytesPerStream);
+                var (data, problem) = ReadEntry(entry, budget);
+                if (problem is not null)
+                    incomplete.Add($"entrada '{entry.FullName}': {problem}");
                 if (data.Length == 0) continue;
 
                 var lower = ActiveContentMarkers.ToLowerAscii(data);
@@ -181,36 +200,41 @@ public static class ActiveContentInspector
                 ActiveContentMarkers.ScanLower(lower, ActiveContentMarkers.Macro, found, seen);
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ScanLimitExceededException ex)
+        {
+            incomplete.Add(ex.Message);
+        }
         catch
         {
-            // ZIP inválido/criptografado — nada a inspecionar aqui (o antivírus ainda roda depois).
+            // ZIP inválido/criptografado: NÃO é "benigno" — não foi possível inspecionar (fail-closed).
+            incomplete.Add("container OOXML/ZIP ilegível ou criptografado: não inspecionado");
         }
-        return found;
+        return new InspectionResult(found, incomplete);
     }
 
-    private static byte[] ReadEntry(ZipArchiveEntry entry, long maxDecompressedBytes)
+    private static (byte[] Data, string? Problem) ReadEntry(ZipArchiveEntry entry, ScanBudget budget)
     {
         try
         {
+            budget.ThrowIfCancellationRequested();
             using var es = entry.Open();
-            using var outMs = new MemoryStream();
-            var buf = new byte[81920];
-            int total = 0, read;
-            while ((read = es.Read(buf, 0, buf.Length)) > 0)
-            {
-                total += read;
-                if (total > maxDecompressedBytes)
-                {
-                    outMs.Write(buf, 0, (int)(read - (total - maxDecompressedBytes)));
-                    break;
-                }
-                outMs.Write(buf, 0, read);
-            }
-            return outMs.ToArray();
+            return (budget.ReadExpanded(es, $"entrada OOXML '{entry.FullName}'"), null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ScanLimitExceededException)
+        {
+            throw;
         }
         catch
         {
-            return [];
+            return ([], "entrada ilegível: não inspecionada");
         }
     }
 }

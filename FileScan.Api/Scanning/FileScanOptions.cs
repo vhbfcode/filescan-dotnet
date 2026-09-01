@@ -17,6 +17,22 @@ public sealed class FileScanOptions
     [Range(64 * 1024, 256L * 1024 * 1024)]
     public long MaxDecompressedBytesPerStream { get; set; } = 16 * 1024 * 1024;
 
+    /// <summary>Orçamento agregado de bytes expandidos em PDF, OOXML e anexos. Default 64 MB.</summary>
+    [Range(64 * 1024, 1024L * 1024 * 1024)]
+    public long MaxTotalDecompressedBytes { get; set; } = 64 * 1024 * 1024;
+
+    /// <summary>Quantidade agregada máxima de objetos/streams/entradas por scan.</summary>
+    [Range(1, 100_000)]
+    public int MaxContainerEntries { get; set; } = 1024;
+
+    /// <summary>Quantidade agregada máxima de arquivos embutidos.</summary>
+    [Range(1, 10_000)]
+    public int MaxEmbeddedFiles { get; set; } = 50;
+
+    /// <summary>Profundidade máxima de PDFs embutidos; a raiz tem profundidade zero.</summary>
+    [Range(0, 16)]
+    public int MaxEmbeddedDepth { get; set; } = 3;
+
     /// <summary>
     /// Extensões permitidas (sem ponto, minúsculas). Vazio = não restringe por extensão
     /// (a checagem de assinatura de executável continua valendo de qualquer forma).
@@ -54,6 +70,10 @@ public sealed class FileScanOptions
     {
         MaxFileSizeBytes = MaxFileSizeBytes,
         MaxDecompressedBytesPerStream = MaxDecompressedBytesPerStream,
+        MaxTotalDecompressedBytes = MaxTotalDecompressedBytes,
+        MaxContainerEntries = MaxContainerEntries,
+        MaxEmbeddedFiles = MaxEmbeddedFiles,
+        MaxEmbeddedDepth = MaxEmbeddedDepth,
         AllowedExtensions = AllowedExtensions,
         OnActiveContent = ActiveContent.OnDetected,
     };

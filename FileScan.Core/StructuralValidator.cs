@@ -8,15 +8,23 @@ namespace FileScan.Scanning;
 /// Verifica o tipo de verdade pelos bytes — não confia só na extensão — recusando binário perigoso
 /// (executável) e arquivos cujo conteúdo não bate com a extensão declarada. Complementa o scan antivírus.
 /// </summary>
-public sealed class StructuralValidator(FileScannerOptions options, IContentInspector? inspector = null)
+public sealed class StructuralValidator
 {
     // O build do inspector é caro (compila as definições); compartilhado entre instâncias que não
     // injetam um próprio. Definições Default do Mime-Detective = livres para uso comercial.
     private static readonly Lazy<IContentInspector> DefaultInspector = new(() =>
         new ContentInspectorBuilder { Definitions = DefaultDefinitions.All() }.Build());
 
-    private readonly FileScannerOptions _opt = options;
-    private readonly IContentInspector _inspector = inspector ?? DefaultInspector.Value;
+    private readonly FileScannerOptions _opt;
+    private readonly IContentInspector _inspector;
+
+    public StructuralValidator(FileScannerOptions options, IContentInspector? inspector = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _opt = options.Snapshot();
+        _opt.Validate();
+        _inspector = inspector ?? DefaultInspector.Value;
+    }
 
     /// <summary>Retorna o motivo da reprovação, ou null se passou.</summary>
     public string? Validate(string fileName, byte[] content)
@@ -57,6 +65,14 @@ public sealed class StructuralValidator(FileScannerOptions options, IContentInsp
         var detected = _inspector.Inspect(content).ByFileExtension();
         var topExt = detected.Length > 0 ? detected[0].Extension.ToLowerInvariant() : null;
         return topExt is not null && DangerousTypes.Contains(topExt) ? topExt : null;
+    }
+
+    internal bool IsPolicyCompatibleWith(FileScannerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return _opt.MaxFileSizeBytes == options.MaxFileSizeBytes
+            && new HashSet<string>(_opt.AllowedExtensions, StringComparer.Ordinal)
+                .SetEquals(options.AllowedExtensions);
     }
 
     // Tipos detectáveis por conteúdo que nunca devem ser aceitos como upload de usuário.

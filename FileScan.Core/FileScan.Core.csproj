@@ -4,11 +4,11 @@
     FileScan.Core — biblioteca reutilizável de validação de arquivos.
     Sem ClamAV, sem ASP.NET: validação estrutural (Mime-Detective) + detecção de conteúdo
     ativo multi-formato, consumível por qualquer app .NET via `new FileScanService(options)`.
-    O antivírus é plugável via IVirusScanner (a API deste repo pluga o ClamAV).
+    Uma integração antivírus é opcional e plugável via IVirusScanner.
   -->
 
   <PropertyGroup>
-    <Description>Upload file validation for .NET, in-process (no API, no daemon): real content-type check via magic bytes (Mime-Detective) + heuristic active-content detection — JavaScript in PDF, Office DDE/macros, CSV formula injection (OWASP), polyglot images. Optional pluggable antivirus via IVirusScanner. Heuristic defense-in-depth layer, not a certified CDR/antivirus.</Description>
+    <Description>Fail-closed upload validation for .NET, in-process: real content-type checking, bounded structural PDF parsing, recursive embedded-file inspection, and active-content detection for PDF/Office/CSV/images. Optional pluggable antivirus via IVirusScanner. Defense-in-depth, not a malware certificate or certified CDR.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
@@ -34,6 +34,7 @@
 
   <ItemGroup>
     <PackageReference Include="Mime-Detective" />
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
 
 </Project>

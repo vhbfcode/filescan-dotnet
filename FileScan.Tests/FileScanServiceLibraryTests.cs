@@ -42,11 +42,30 @@ public class FileScanServiceLibraryTests
     }
 
     [Fact]
-    public async Task FlagPolicy_PassesWithWarnings()
+    public async Task OptionsMutatedAfterConstruction_CannotDisableInspectionOrOverflowBudget()
+    {
+        var options = new FileScannerOptions();
+        var scanner = Make(options);
+        var pdf = Samples.PdfWithJavaScriptOnlyInsideFlateStream();
+
+        Assert.Equal(ScanVerdict.Rejected, (await scanner.ScanAsync("x.pdf", pdf)).Verdict);
+
+        options.MaxDecompressedBytesPerStream = long.MaxValue;
+        options.MaxTotalDecompressedBytes = long.MaxValue;
+        options.OnActiveContent = ActiveContentAction.Ignore;
+        options.AllowedExtensions = ["txt"];
+
+        var result = await scanner.ScanAsync("x.pdf", pdf);
+        Assert.Equal(ScanVerdict.Rejected, result.Verdict);
+        Assert.Contains("JavaScript", result.Reason);
+    }
+
+    [Fact]
+    public async Task FlagPolicy_ReturnsNonPersistableVerdictWithWarnings()
     {
         var svc = Make(new FileScannerOptions { OnActiveContent = ActiveContentAction.Flag });
         var result = await svc.ScanAsync("malicioso.pdf", Samples.PdfWithJavaScript());
-        Assert.Equal(ScanVerdict.Clean, result.Verdict);
+        Assert.Equal(ScanVerdict.ActiveContentDetected, result.Verdict);
         Assert.NotNull(result.Warnings);
         Assert.NotEmpty(result.Warnings);
     }

@@ -26,41 +26,146 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # SHAs imutáveis conferidos nos repositórios oficiais em 2026-08-31.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Test
-        run: dotnet test FileScan.Tests/FileScan.Tests.csproj -c Release
+      - name: Canários do gate de audit (falhas esperadas)
+        shell: pwsh
+        run: |
+          ./eng/Assert-NuGetAuditGate.ps1
+          ./eng/Assert-NuGetPackageNormalization.ps1
 
-      - name: Pack (versão derivada da tag)
+      # Gate ANTES de test/pack/publish: NU1900 (dados indisponíveis), NU1903 (High) e NU1904
+      # (Critical), inclusive transitivos, são erros em Directory.Build.props.
+      - name: Restore e audit do grafo candidato
+        run: dotnet restore FileScan.slnx --force-evaluate --no-http-cache
+
+      - name: Test
+        run: dotnet test FileScan.Tests/FileScan.Tests.csproj -c Release --no-restore
+
+      - name: Pack único e manifesto de proveniência
+        id: pack
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          dotnet pack FileScan.Core/FileScan.Core.csproj -c Release -o artifacts -p:Version="$VERSION"
+          test "v${VERSION}" = "$GITHUB_REF_NAME"
+          dotnet pack FileScan.Core/FileScan.Core.csproj -c Release --no-restore -o artifacts \
+            -p:Version="$VERSION" \
+            -p:ContinuousIntegrationBuild=true \
+            -p:RepositoryCommit="$GITHUB_SHA"
+          PACKAGE="artifacts/FileScan.Core.${VERSION}.nupkg"
+          SYMBOL_PACKAGE="artifacts/FileScan.Core.${VERSION}.snupkg"
+          test -f "$PACKAGE"
+          test -f "$SYMBOL_PACKAGE"
+          COMMIT_TIMESTAMP="$(git show -s --format=%cI "$GITHUB_SHA")"
+          pwsh ./eng/Normalize-NuGetPackage.ps1 \
+            -PackagePath "$PACKAGE" -TimestampUtc "$COMMIT_TIMESTAMP"
+          pwsh ./eng/Normalize-NuGetPackage.ps1 \
+            -PackagePath "$SYMBOL_PACKAGE" -TimestampUtc "$COMMIT_TIMESTAMP"
+          HASH="$(sha256sum "$PACKAGE" | cut -d' ' -f1)"
+          SYMBOL_HASH="$(sha256sum "$SYMBOL_PACKAGE" | cut -d' ' -f1)"
+          printf 'package=%s\nsymbol_package=%s\nversion=%s\ntag=%s\ncommit=%s\nsha256=%s\nsymbol_sha256=%s\n' \
+            "$PACKAGE" "$SYMBOL_PACKAGE" "$VERSION" "$GITHUB_REF_NAME" "$GITHUB_SHA" \
+            "$HASH" "$SYMBOL_HASH" \
+            > artifacts/provenance.txt
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "symbol_package=$SYMBOL_PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "sha256=$HASH" >> "$GITHUB_OUTPUT"
+          echo "symbol_sha256=$SYMBOL_HASH" >> "$GITHUB_OUTPUT"
 
-      # --no-symbols: o GitHub Packages não aceita .snupkg (símbolos vão só ao nuget.org).
-      - name: Push para o GitHub Packages
-        run: |
-          dotnet nuget push "artifacts/*.nupkg" \
-            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-            --api-key "${{ secrets.GITHUB_TOKEN }}" \
-            --no-symbols \
-            --skip-duplicate
+      - name: Canário da promoção explícita de símbolos
+        shell: pwsh
+        run: >-
+          ./eng/Assert-NuGetSymbolPromotion.ps1
+          -PackagePath '${{ steps.pack.outputs.package }}'
+          -SymbolPackagePath '${{ steps.pack.outputs.symbol_package }}'
+
+      - name: Preservar artefato candidato antes da promoção
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FileScan.Core-${{ steps.pack.outputs.version }}-${{ github.sha }}
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+            artifacts/provenance.txt
+          if-no-files-found: error
+          retention-days: 90
 
       # Troca o token OIDC do job por uma API key efêmera do nuget.org (válida ~1h,
       # uso único). Pedida logo antes do push, como a doc recomenda.
       - name: NuGet login (Trusted Publishing / OIDC)
-        uses: NuGet/login@v1
+        uses: NuGet/login@ebc737b6fc418a6ca0073cf116ec8dc156d8b81e # v1
         id: nuget-login
+        continue-on-error: true
         with:
           user: vhbf # username (perfil) do nuget.org dono da policy
 
-      # O .snupkg de símbolos é enviado automaticamente junto (nuget.org aceita).
-      - name: Push para o nuget.org
+      # nuget.org é o primário. O script consulta a versão remota e só considera um rerun
+      # idempotente quando o SHA-256 existente coincide com o artefato deste commit.
+      - name: Promover para nuget.org (primário)
+        id: primary
+        if: steps.nuget-login.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: >-
+          ./eng/Push-NuGetWithHash.ps1
+          -PackagePath '${{ steps.pack.outputs.package }}'
+          -PackageId 'FileScan.Core'
+          -Version '${{ steps.pack.outputs.version }}'
+          -Source 'https://api.nuget.org/v3/index.json'
+          -ApiKey '${{ steps.nuget-login.outputs.NUGET_API_KEY }}'
+          -StateFile 'artifacts/nuget-org-state.txt'
+
+      # O push principal usa --no-symbols no script para tornar esta promoção observável e
+      # independente. O nuget.org expõe SymbolPackagePublish; um rerun pode reenviar o mesmo
+      # .snupkg para a mesma versão, enquanto seu hash permanece pinado no manifesto.
+      - name: Promover símbolos para nuget.org
+        id: symbols
+        if: steps.primary.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: >-
+          dotnet nuget push '${{ steps.pack.outputs.symbol_package }}'
+          --source 'https://api.nuget.org/v3/index.json'
+          --api-key '${{ steps.nuget-login.outputs.NUGET_API_KEY }}'
+
+      # GitHub Packages documenta o registro NuGet no formato nupkg, não um symbol server para
+      # snupkg. O espelho recebe o pacote principal somente depois de pacote+símbolos no primário.
+      - name: Promover para GitHub Packages (espelho)
+        id: mirror
+        if: steps.symbols.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: >-
+          ./eng/Push-NuGetWithHash.ps1
+          -PackagePath '${{ steps.pack.outputs.package }}'
+          -PackageId 'FileScan.Core'
+          -Version '${{ steps.pack.outputs.version }}'
+          -Source 'https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json'
+          -ApiKey '${{ secrets.GITHUB_TOKEN }}'
+          -Username '${{ github.actor }}'
+          -StateFile 'artifacts/github-packages-state.txt'
+
+      - name: Registrar estado final/ parcial e fechar o job
+        if: always()
+        shell: pwsh
         run: |
-          dotnet nuget push "artifacts/*.nupkg" \
-            --source "https://api.nuget.org/v3/index.json" \
-            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
-            --skip-duplicate
+          "## Promoção FileScan.Core ${{ steps.pack.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+          "- commit: `${{ github.sha }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- sha256: `${{ steps.pack.outputs.sha256 }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- symbol sha256: `${{ steps.pack.outputs.symbol_sha256 }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- login nuget.org: `${{ steps.nuget-login.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- primário nuget.org: `${{ steps.primary.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- símbolos nuget.org: `${{ steps.symbols.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- espelho GitHub Packages: `${{ steps.mirror.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
+
+          if ('${{ steps.nuget-login.outcome }}' -ne 'success' -or
+              '${{ steps.primary.outcome }}' -ne 'success' -or
+              '${{ steps.symbols.outcome }}' -ne 'success' -or
+              '${{ steps.mirror.outcome }}' -ne 'success') {
+            throw 'Publicação não concluída; o resumo registra o estado parcial.'
+          }

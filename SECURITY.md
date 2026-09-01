@@ -16,8 +16,9 @@ Always validate behavior in your own environment before relying on it.
 ## Caller responsibilities (serving uploaded files)
 
 FileScan is **scan-only**: it inspects an upload and returns a verdict — it never
-serves files back. A `Clean` verdict means *"no active-content/injection markers were
-found"*, **not** *"safe to render inline in a browser"*.
+serves files back. For PDF/OOXML, `Clean` means the supported structural/active-content
+inspection completed with no finding, warning, skipped work, exhausted budget or ambiguity.
+It still does **not** mean *"malware-free"* or *"safe to render inline in a browser"*.
 
 For the class of attack where a PDF (or other document) carries auto-running
 JavaScript aimed at **stored XSS**, the strongest mitigations happen at **serving
@@ -39,8 +40,9 @@ own origin re-introduces the stored-XSS risk that FileScan reduced.
 ### Responsabilidades de quem chama (ao servir os arquivos) — pt-BR
 
 O FileScan **apenas escaneia**: ele inspeciona o upload e devolve um veredito — nunca
-serve o arquivo de volta. Um veredito `Clean` significa *"nenhum marcador de conteúdo
-ativo/injeção foi encontrado"*, **não** *"pode renderizar inline no browser com segurança"*.
+serve o arquivo. Para PDF/OOXML, `Clean` significa que a inspeção estrutural/conteúdo ativo
+suportada terminou sem achado, warning, trabalho pulado, orçamento esgotado ou ambiguidade.
+Ainda **não** significa *"sem malware"* nem *"pode renderizar inline com segurança"*.
 
 Para a classe de ataque em que um PDF (ou outro documento) carrega JavaScript de
 auto-execução visando **stored XSS**, as mitigações mais fortes acontecem no momento de
@@ -66,14 +68,29 @@ These are conscious gaps in the heuristic layer; ClamAV (when enabled) and the c
 responsibilities above are the complementary layers.
 
 - **Non-Flate stream filters.** PDF scanning covers the structural regions
-  (dictionaries/objects, scanned raw) plus stream bodies that are either literal
+  through PdfPig (xref/trailer, indirect references and object streams), plus stream bodies that are literal
   (no `/Filter`) or **FlateDecode** (always decompressed and scanned inflated —
   compressed bytes are never judged raw, since random compressed data produces
-  false positives). JavaScript hidden behind other filters (ASCIIHex, ASCII85,
-  LZW, or chained filters) or inside an **encrypted** PDF is not inspected —
-  those bodies are skipped as uninterpretable. A crafted xref pointing into such
-  a skipped body could hide an object from the heuristic. Full coverage of these
-  cases requires CDR or a sandbox.
+  false positives). Bodies behind other filters (ASCIIHex, ASCII85, LZW, or
+  chained filters), inside an **encrypted** PDF, in a structurally invalid file,
+  behind an unsupported predictor, or past per-stream/aggregate entry, expansion,
+  attachment-count or recursion limits are **not silently skipped**: the scan returns
+  `NotInspected` (never `Clean`) so the caller fails closed. Actually *reading*
+  those bodies would require CDR or a sandbox.
+  Embedded files are identified through `FileSpec` associations (`EmbeddedFiles`, `AF`, and `FS`
+  inside `/Subtype /FileAttachment` annotations) and direct or indirect `/EF` relations; the
+  optional `/Type /EmbeddedFile` marker is not trusted as the sole source. Unrelated `/EF` or `/FS`
+  extension keys are ignored. Invalid name-tree values (including `/Limits` on the root node) and
+  broken/cyclic/non-stream associated targets return `NotInspected`. Literal and hexadecimal name
+  keys and child `/Limits` are compared by decoded bytes. Cancellation propagates through parsing
+  and decompression.
+- **The "full inspection or `NotInspected`" guarantee covers PDF and OOXML only.**
+  For legacy OLE2 (`.doc`/`.xls`), images, CSV and plain text the engine is a
+  best-effort byte-scanning heuristic and never reports incomplete inspection:
+  `Clean` there means "no marker matched", not "fully parsed". An obfuscated or
+  compressed OLE2 VBA macro can evade the raw scan and still come back `Clean` —
+  if you accept OLE2 uploads, plug in an antivirus (`IVirusScanner`) or block
+  those extensions via `AllowedExtensions`.
 
 ### Evasões conhecidas / limitações — pt-BR
 
@@ -81,14 +98,30 @@ São lacunas conscientes da camada heurística; o ClamAV (quando habilitado) e a
 responsabilidades de quem chama (acima) são as camadas complementares.
 
 - **Filtros de stream não-Flate.** O scan de PDF cobre as regiões estruturais
-  (dicionários/objetos, varridas cruas) e os corpos de stream literais (sem `/Filter`)
-  ou **FlateDecode** (sempre descomprimidos e varridos inflados — bytes comprimidos
+  via PdfPig (xref/trailer, referências indiretas e object streams) e os corpos de stream
+  literais (sem `/Filter`) ou
+  **FlateDecode** (sempre descomprimidos e varridos inflados — bytes comprimidos
   nunca são julgados crus, porque dados comprimidos aleatórios geram falso positivo).
-  JavaScript escondido atrás de outros filtros (ASCIIHex, ASCII85, LZW ou filtros
-  encadeados) ou dentro de um PDF **criptografado** não é inspecionado — esses corpos
-  são pulados como ilegíveis. Um xref forjado apontando para dentro de um corpo pulado
-  pode esconder um objeto da heurística. Cobertura total desses casos exige CDR ou
-  sandbox.
+  Corpos atrás de outros filtros (ASCIIHex, ASCII85, LZW ou filtros encadeados),
+  com predictor não suportado, dentro de PDF **criptografado**, em estrutura inválida ou além dos
+  limites por stream/agregados de entradas, expansão, anexos ou profundidade **não são pulados
+  em silêncio**: o scan devolve
+  `NotInspected` (nunca `Clean`) e o chamador falha fechado. LER esses corpos de fato
+  exigiria CDR ou sandbox.
+  Arquivos embutidos são identificados por associações `FileSpec` (`EmbeddedFiles`, `AF` e `FS`
+  dentro de annotations `/Subtype /FileAttachment`) e relações `/EF` diretas ou indiretas; o
+  marcador opcional `/Type /EmbeddedFile` não é a única fonte. Chaves de extensão `/EF` ou `/FS`
+  sem esse contexto são ignoradas. Valores inválidos na name tree (inclusive `/Limits` no nó raiz)
+  e alvos associados quebrados, cíclicos ou que não sejam stream devolvem `NotInspected`. Chaves e
+  `/Limits` literais ou hexadecimais são comparados pelos bytes decodificados. Cancelamento é
+  propagado por parsing e descompressão.
+- **A garantia "inspeção integral ou `NotInspected`" cobre só PDF e OOXML.**
+  Para OLE2 legado (`.doc`/`.xls`), imagens, CSV e texto puro o motor é heurística
+  best-effort de varredura de bytes e nunca reporta inspeção incompleta: `Clean`
+  nesses formatos significa "nenhum marcador casou", não "parseado por completo".
+  Uma macro VBA OLE2 ofuscada ou comprimida pode evadir a varredura crua e ainda
+  voltar `Clean` — se você aceita uploads OLE2, plugue um antivírus (`IVirusScanner`)
+  ou bloqueie essas extensões via `AllowedExtensions`.
 
 ## Reporting a vulnerability
 

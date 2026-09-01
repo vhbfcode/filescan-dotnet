@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1900;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Fixture isolada: Microsoft.ChakraCore 1.11.1 possui advisory Critical no índice
+         oficial do NuGet. Nunca integra a solution nem o pacote distribuído. -->
+    <PackageReference Include="Microsoft.ChakraCore" Version="1.11.1" />
+  </ItemGroup>
+</Project>
