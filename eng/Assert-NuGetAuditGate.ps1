@@ -40,3 +40,8 @@ Assert-ExpectedRestoreFailure -ExpectedCode 'NU1904' -Arguments @(
     'restore', $criticalProject,
     '--force-evaluate', '--no-http-cache', '--disable-build-servers', '-v:minimal'
 )
+
+# Os canários acima terminam com um dotnet que FALHA de propósito, deixando $LASTEXITCODE = 1.
+# O wrapper `shell: pwsh` do GitHub Actions fecha todo passo com `exit $LASTEXITCODE` — sem este
+# exit explícito, o passo falharia mesmo com todos os canários confirmados.
+exit 0

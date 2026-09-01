@@ -154,14 +154,17 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          "## Promoção FileScan.Core ${{ steps.pack.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
-          "- commit: `${{ github.sha }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- sha256: `${{ steps.pack.outputs.sha256 }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- symbol sha256: `${{ steps.pack.outputs.symbol_sha256 }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- login nuget.org: `${{ steps.nuget-login.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- primário nuget.org: `${{ steps.primary.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- símbolos nuget.org: `${{ steps.symbols.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
-          "- espelho GitHub Packages: `${{ steps.mirror.outcome }}`" >> $env:GITHUB_STEP_SUMMARY
+          # Aspas SIMPLES: os valores carregam crases de markdown, e em string PowerShell de
+          # aspas duplas a crase é caractere de escape — um `" no fim escaparia a aspa de
+          # fechamento e quebraria o parse do passo inteiro.
+          '## Promoção FileScan.Core ${{ steps.pack.outputs.version }}' >> $env:GITHUB_STEP_SUMMARY
+          '- commit: `${{ github.sha }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- sha256: `${{ steps.pack.outputs.sha256 }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- symbol sha256: `${{ steps.pack.outputs.symbol_sha256 }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- login nuget.org: `${{ steps.nuget-login.outcome }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- primário nuget.org: `${{ steps.primary.outcome }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- símbolos nuget.org: `${{ steps.symbols.outcome }}`' >> $env:GITHUB_STEP_SUMMARY
+          '- espelho GitHub Packages: `${{ steps.mirror.outcome }}`' >> $env:GITHUB_STEP_SUMMARY
 
           if ('${{ steps.nuget-login.outcome }}' -ne 'success' -or
               '${{ steps.primary.outcome }}' -ne 'success' -or
