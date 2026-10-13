@@ -50,7 +50,40 @@ internal static class PdfStructuralInspector
         if (!HasStrictFinalEof(content))
         {
             AddOnce(incomplete, incompleteSeen,
-                "estrutura inválida: %%EOF final ausente ou seguido de bytes não-whitespace");
+                "estrutura inválida: o último startxref não é seguido de <offset> e %%EOF final, " +
+                "ou há bytes não-whitespace depois dele");
+            PdfNameScanner.Scan(content, findings, findingsSeen);
+            budget.ThrowIfCancellationRequested();
+            return new(findings, incomplete, embedded);
+        }
+
+        // 1) Cobertura de bytes (VOLTA r2): nada fora de objeto/xref/trailer/startxref.
+        var coverage = PdfByteCoverage.Scan(content, budget);
+        if (coverage.GapOffset is { } gap)
+        {
+            AddOnce(incomplete, incompleteSeen,
+                $"estrutura inválida: bytes fora de qualquer objeto, xref, trailer ou startxref (offset {gap})");
+            PdfNameScanner.Scan(content, findings, findingsSeen); // só achados; nunca conclui Clean
+            budget.ThrowIfCancellationRequested();
+            return new(findings, incomplete, embedded);
+        }
+
+        // 2) Guarda pré-Open (VOLTA r4/r5): o PdfDocument.Open do PdfPig 0.1.16 recursa sem limite em
+        //    name tree /Dests, cadeias de referências indiretas e profundidade da árvore de páginas;
+        //    estouro de pilha derruba o processo. A guarda lê com os tokenizadores do próprio PdfPig e
+        //    recusa o que não entende. PDF criptografado nem abre. Ver PdfPreOpenGuard.
+        var guard = PdfPreOpenGuard.Check(content, coverage, budget,
+            decoded => PdfNameScanner.Scan(decoded, findings, findingsSeen));
+        if (guard.Encrypted)
+        {
+            AddOnce(incomplete, incompleteSeen,
+                "PDF criptografado: conteúdo não inspecionável sem credencial");
+            return new(findings, incomplete, embedded);
+        }
+
+        if (guard.Refusal is { } unsafeForOpen)
+        {
+            AddOnce(incomplete, incompleteSeen, $"estrutura PDF recusada antes da abertura: {unsafeForOpen}");
             PdfNameScanner.Scan(content, findings, findingsSeen);
             budget.ThrowIfCancellationRequested();
             return new(findings, incomplete, embedded);
@@ -95,10 +128,13 @@ internal static class PdfStructuralInspector
 
             try
             {
+                InspectOrphanObjects(content, coverage.Objects, document, findings, findingsSeen,
+                    incomplete, incompleteSeen, budget);
+
                 var objects = new List<(IndirectReference Reference, ObjectToken Object)>();
                 foreach (var reference in document.Structure.CrossReferenceTable.ObjectOffsets.Keys)
                 {
-                    budget.ConsumeEntry("objeto PDF");
+                    budget.ConsumePdfObject();
                     objects.Add((reference, document.Structure.GetObject(reference)));
                 }
 
@@ -122,12 +158,19 @@ internal static class PdfStructuralInspector
                         embeddedReferences, embeddedDirectStreams, budget);
                 }
 
+                var binaryReferences = new HashSet<IndirectReference>();
+                foreach (var item in objects)
+                {
+                    budget.ThrowIfCancellationRequested();
+                    CollectBinaryStreamReferences(item.Object.Data, 0, binaryReferences, budget);
+                }
+
                 foreach (var item in objects)
                 {
                     budget.ThrowIfCancellationRequested();
                     WalkToken(item.Object.Data, 0, item.Reference, document, filterProvider, budget,
                         findings, findingsSeen, incomplete, incompleteSeen, embedded, embeddedHashes,
-                        embeddedReferences, embeddedDirectStreams);
+                        embeddedReferences, embeddedDirectStreams, binaryReferences);
                     budget.ThrowIfCancellationRequested();
                 }
             }
@@ -154,6 +197,61 @@ internal static class PdfStructuralInspector
         return new(findings, incomplete, embedded);
     }
 
+    /// <summary>
+    /// Objeto sintaticamente válido que NENHUMA seção xref da cadeia /Prev lista (nem é uma xref
+    /// stream) não é alcançável pelos leitores normais, mas um leitor em modo de reparo o veria.
+    /// Sem stream: varredura léxica de nomes de ação. Com stream: não há como inspecionar → incompleto.
+    /// Objetos listados em seções antigas (superados por uma atualização) são legítimos e ficam fora.
+    /// </summary>
+    private static void InspectOrphanObjects(byte[] content, IReadOnlyList<PdfTopLevelObject> objects,
+        PdfDocument document, List<string> findings, HashSet<string> findingsSeen,
+        List<string> incomplete, HashSet<string> incompleteSeen, ScanBudget budget)
+    {
+        var listed = new List<long>();
+        foreach (var part in document.Structure.CrossReferenceTable.Parts)
+        {
+            listed.Add(part.Offset); // a própria seção (xref table ou xref stream)
+            foreach (var entry in part.ObjectOffsets.Values)
+                if (entry.Type == XrefEntryType.File) listed.Add(entry.Value1);
+        }
+        listed.Sort();
+        long[] offsets = [.. listed];
+
+        foreach (var item in objects)
+        {
+            budget.ThrowIfCancellationRequested();
+            if (item.IsXRefStream || IsListed(content, offsets, item.Start)) continue;
+
+            if (item.HasStream)
+            {
+                AddOnce(incomplete, incompleteSeen,
+                    "objeto com stream fora de qualquer seção xref (não alcançável e não inspecionável)");
+                continue;
+            }
+
+            var slice = content.AsSpan((int)item.Start, (int)(item.End - item.Start));
+            if (!PdfNameScanner.Scan(slice, findings, findingsSeen))
+                AddOnce(incomplete, incompleteSeen,
+                    "objeto fora de qualquer seção xref contém string literal ou hexadecimal não terminada");
+        }
+    }
+
+    // O offset da xref pode apontar para whitespace logo antes de "n g obj".
+    private static bool IsListed(byte[] content, long[] offsets, long start)
+    {
+        int index = Array.BinarySearch(offsets, start);
+        if (index >= 0) return true;
+
+        index = ~index - 1; // maior offset < start
+        if (index < 0) return false;
+        for (long position = offsets[index]; position < start; position++)
+        {
+            if (start - offsets[index] > 8) return false;
+            if (!IsWhitespace(content[position])) return false;
+        }
+        return true;
+    }
+
     private static void WalkToken(IToken token, int nesting, IndirectReference containingReference,
         PdfDocument document,
         BudgetedPdfFilterProvider filterProvider, ScanBudget budget,
@@ -161,7 +259,8 @@ internal static class PdfStructuralInspector
         List<string> incomplete, HashSet<string> incompleteSeen,
         List<byte[]> embedded, HashSet<string> embeddedHashes,
         HashSet<IndirectReference> embeddedReferences,
-        HashSet<StreamToken> embeddedDirectStreams)
+        HashSet<StreamToken> embeddedDirectStreams,
+        HashSet<IndirectReference> binaryReferences)
     {
         budget.ThrowIfCancellationRequested();
         if (nesting > MaxTokenNesting)
@@ -179,7 +278,7 @@ internal static class PdfStructuralInspector
                     PdfNameScanner.AddName(pair.Key, findings, findingsSeen);
                     WalkToken(pair.Value, nesting + 1, containingReference, document, filterProvider, budget,
                         findings, findingsSeen, incomplete, incompleteSeen, embedded, embeddedHashes,
-                        embeddedReferences, embeddedDirectStreams);
+                        embeddedReferences, embeddedDirectStreams, binaryReferences);
                 }
                 break;
 
@@ -187,23 +286,23 @@ internal static class PdfStructuralInspector
                 foreach (var item in array.Data)
                     WalkToken(item, nesting + 1, containingReference, document, filterProvider, budget,
                         findings, findingsSeen, incomplete, incompleteSeen, embedded, embeddedHashes,
-                        embeddedReferences, embeddedDirectStreams);
+                        embeddedReferences, embeddedDirectStreams, binaryReferences);
                 break;
 
             case StreamToken stream:
                 WalkToken(stream.StreamDictionary, nesting + 1, containingReference, document, filterProvider, budget,
                     findings, findingsSeen, incomplete, incompleteSeen, embedded, embeddedHashes,
-                    embeddedReferences, embeddedDirectStreams);
+                    embeddedReferences, embeddedDirectStreams, binaryReferences);
                 ProcessStream(stream, containingReference, filterProvider, budget,
                     findings, findingsSeen,
                     incomplete, incompleteSeen, embedded, embeddedHashes,
-                    embeddedReferences, embeddedDirectStreams);
+                    embeddedReferences, embeddedDirectStreams, binaryReferences);
                 break;
 
             case ObjectToken nestedObject:
                 WalkToken(nestedObject.Data, nesting + 1, containingReference, document, filterProvider, budget,
                     findings, findingsSeen, incomplete, incompleteSeen, embedded, embeddedHashes,
-                    embeddedReferences, embeddedDirectStreams);
+                    embeddedReferences, embeddedDirectStreams, binaryReferences);
                 break;
         }
     }
@@ -214,16 +313,29 @@ internal static class PdfStructuralInspector
         List<string> incomplete, HashSet<string> incompleteSeen,
         List<byte[]> embedded, HashSet<string> embeddedHashes,
         HashSet<IndirectReference> embeddedReferences,
-        HashSet<StreamToken> embeddedDirectStreams)
+        HashSet<StreamToken> embeddedDirectStreams,
+        HashSet<IndirectReference> binaryReferences)
     {
-        budget.ConsumeEntry("stream PDF");
-        byte[] decoded = Decode(stream, filterProvider, budget);
+        budget.ThrowIfCancellationRequested();
         string? type = GetName(stream.StreamDictionary, NameToken.Type);
         string? subtype = GetName(stream.StreamDictionary, NameToken.Subtype);
 
-        if (string.Equals(type, "EmbeddedFile", StringComparison.Ordinal)
+        bool isEmbedded = string.Equals(type, "EmbeddedFile", StringComparison.Ordinal)
             || embeddedReferences.Contains(containingReference)
-            || embeddedDirectStreams.Contains(stream))
+            || embeddedDirectStreams.Contains(stream);
+
+        // Imagem que não é anexo: os bytes de uma imagem (JPEG/JPX/JBIG2/CCITT, ou raster em Flate)
+        // nunca são lidos como sintaxe PDF. Decodificá-los só gastaria o orçamento (um scan A4 colorido
+        // passa de 16 MB descomprimido) ou falharia por falta de codec limitado. O que importa — anexo
+        // (EmbeddedFile/FileSpec /EF) ou ObjStm, que o PdfPig lê por conta própria — não é pulado:
+        // anexo é decidido acima por referência, ObjStm é percorrido como objetos. Um codec de imagem
+        // num stream que NÃO é /Subtype /Image (ou num anexo) continua falhando fechado.
+        if (!isEmbedded && string.Equals(subtype, "Image", StringComparison.Ordinal))
+            return;
+
+        byte[] decoded = Decode(stream, filterProvider, budget);
+
+        if (isEmbedded)
         {
             budget.ConsumeEmbeddedFile();
             string hash = Convert.ToHexString(SHA256.HashData(decoded));
@@ -239,9 +351,70 @@ internal static class PdfStructuralInspector
             || string.Equals(subtype, "Image", StringComparison.Ordinal))
             return;
 
-        if (!PdfNameScanner.Scan(decoded, findings, findingsSeen))
+        bool lexicallyComplete = PdfNameScanner.Scan(decoded, findings, findingsSeen);
+
+        // Programa de fonte (FontFile/FontFile2/FontFile3), CIDToGIDMap e perfil ICC são dados
+        // binários, não sintaxe: o '(' ou '<' solto de um TrueType não é uma string não terminada.
+        // O papel vem da REFERÊNCIA (quem aponta para o stream), nunca de chaves que o próprio stream
+        // declara. Os achados continuam valendo; só a "incompletude léxica" é descartada. ObjStm nunca
+        // é tratado como binário.
+        if (!lexicallyComplete
+            && !(binaryReferences.Contains(containingReference)
+                 && !string.Equals(type, "ObjStm", StringComparison.Ordinal)))
             AddOnce(incomplete, incompleteSeen,
                 "stream PDF contém string literal ou hexadecimal não terminada");
+    }
+
+    private static readonly NameToken FontFileKey = NameToken.Create("FontFile");
+    private static readonly NameToken FontFile2Key = NameToken.Create("FontFile2");
+    private static readonly NameToken FontFile3Key = NameToken.Create("FontFile3");
+    private static readonly NameToken CidToGidMapKey = NameToken.Create("CIDToGIDMap");
+    private static readonly NameToken IccBasedName = NameToken.Create("ICCBased");
+
+    /// <summary>
+    /// Coleta as referências que, pelo PAPEL de quem aponta, são dados binários e não sintaxe:
+    /// programas de fonte (/FontFile, /FontFile2, /FontFile3), /CIDToGIDMap e perfis ICC
+    /// (<c>[/ICCBased n 0 R]</c>). Usado só para não tratar um '(' ou '&lt;' solto dentro de um
+    /// TrueType como "string não terminada".
+    /// </summary>
+    private static void CollectBinaryStreamReferences(IToken token, int nesting,
+        HashSet<IndirectReference> binaryReferences, ScanBudget budget)
+    {
+        budget.ThrowIfCancellationRequested();
+        if (nesting > MaxTokenNesting)
+            throw new PdfInspectionException($"aninhamento de tokens PDF excede {MaxTokenNesting}");
+
+        switch (token)
+        {
+            case DictionaryToken dictionary:
+                foreach (var pair in dictionary.Data)
+                {
+                    if ((pair.Key.Equals(FontFileKey) || pair.Key.Equals(FontFile2Key)
+                            || pair.Key.Equals(FontFile3Key) || pair.Key.Equals(CidToGidMapKey))
+                        && pair.Value is IndirectReferenceToken fontData)
+                        binaryReferences.Add(fontData.Data);
+
+                    CollectBinaryStreamReferences(pair.Value, nesting + 1, binaryReferences, budget);
+                }
+                break;
+
+            case ArrayToken array:
+                if (array.Data.Count == 2 && array.Data[0] is NameToken name && name.Equals(IccBasedName)
+                    && array.Data[1] is IndirectReferenceToken profile)
+                    binaryReferences.Add(profile.Data);
+
+                foreach (var item in array.Data)
+                    CollectBinaryStreamReferences(item, nesting + 1, binaryReferences, budget);
+                break;
+
+            case StreamToken stream:
+                CollectBinaryStreamReferences(stream.StreamDictionary, nesting + 1, binaryReferences, budget);
+                break;
+
+            case ObjectToken nestedObject:
+                CollectBinaryStreamReferences(nestedObject.Data, nesting + 1, binaryReferences, budget);
+                break;
+        }
     }
 
     private static void CollectEmbeddedFileStreams(IToken token, int nesting, PdfDocument document,
@@ -256,7 +429,11 @@ internal static class PdfStructuralInspector
         switch (token)
         {
             case DictionaryToken dictionary:
-                if (string.Equals(GetName(dictionary, NameToken.Type), "Filespec", StringComparison.Ordinal))
+                // Qualquer dicionário com /EF é tratado como FileSpec: o /Type /Filespec é opcional e um
+                // leitor resolve /EF (ex.: /GoToE) sem ele. Tratar só os "tipados" deixava um anexo
+                // executável escapar. Um /EF malformado passa a falhar fechado (NotInspected).
+                if (string.Equals(GetName(dictionary, NameToken.Type), "Filespec", StringComparison.Ordinal)
+                    || dictionary.TryGet(EfKey, out _))
                     CollectFromFileSpec(dictionary, document, embeddedReferences,
                         embeddedDirectStreams, budget, FileSpecContext.TypedDictionary);
 
@@ -309,7 +486,7 @@ internal static class PdfStructuralInspector
 
         if (namesDictionary.TryGet(EmbeddedFilesKey, out IToken? embeddedFilesToken))
             CollectFromEmbeddedFilesNameTree(embeddedFilesToken, document, embeddedReferences,
-                embeddedDirectStreams, budget, new HashSet<IndirectReference>(), isRoot: true);
+                embeddedDirectStreams, budget, new HashSet<IndirectReference>(), isRoot: true, depth: 0);
     }
 
     private static NameTreeRange? CollectFromEmbeddedFilesNameTree(IToken token, PdfDocument document,
@@ -317,8 +494,14 @@ internal static class PdfStructuralInspector
         HashSet<StreamToken> embeddedDirectStreams,
         ScanBudget budget,
         HashSet<IndirectReference> visitedNodes,
-        bool isRoot)
+        bool isRoot,
+        int depth)
     {
+        // A recursão por /Kids só era limitada por ciclo: uma cadeia sem ciclo de dezenas de milhares
+        // de nós estourava a pilha (queda do processo). Uma name tree real tem poucos níveis.
+        if (depth > MaxTokenNesting)
+            throw new PdfInspectionException($"name tree /EmbeddedFiles excede {MaxTokenNesting} níveis");
+
         IToken resolved = ResolveIndirect(token, document, out IndirectReference? reference);
         if (reference is { } value && !visitedNodes.Add(value))
             throw new PdfInspectionException("referência indireta cíclica na name tree /EmbeddedFiles");
@@ -383,7 +566,7 @@ internal static class PdfStructuralInspector
 
                 NameTreeRange? childRange = CollectFromEmbeddedFilesNameTree(
                     child, document, embeddedReferences,
-                    embeddedDirectStreams, budget, visitedNodes, isRoot: false);
+                    embeddedDirectStreams, budget, visitedNodes, isRoot: false, depth: depth + 1);
                 if (childRange is null)
                     throw new PdfInspectionException(
                         "name tree /EmbeddedFiles possui filho vazio em /Kids");
@@ -553,7 +736,7 @@ internal static class PdfStructuralInspector
         return token;
     }
 
-    private static byte[] Decode(StreamToken stream, BudgetedPdfFilterProvider filterProvider,
+    internal static byte[] Decode(StreamToken stream, BudgetedPdfFilterProvider filterProvider,
         ScanBudget budget)
     {
         IReadOnlyList<UglyToad.PdfPig.Filters.IFilter> filters =
@@ -578,13 +761,35 @@ internal static class PdfStructuralInspector
         return token is NameToken name ? name.Data : null;
     }
 
+    /// <summary>
+    /// Depois do ÚLTIMO <c>startxref</c> só pode vir <c>&lt;offset&gt;</c>, EOL, <c>%%EOF</c> e
+    /// whitespace até o fim do arquivo. Isso fecha dois buracos: bytes depois do %%EOF (HTML, objetos
+    /// soltos, script) e um 2º %%EOF "de enfeite" que fazia a checagem antiga passar. Atualizações
+    /// incrementais legítimas têm cada uma o seu xref/startxref/%%EOF, então o último startxref é o
+    /// da última revisão e o PdfPig segue a cadeia /Prev.
+    /// </summary>
     private static bool HasStrictFinalEof(ReadOnlySpan<byte> content)
     {
-        int end = content.Length - 1;
-        while (end >= 0 && IsWhitespace(content[end])) end--;
-        ReadOnlySpan<byte> marker = "%%EOF"u8;
-        return end + 1 >= marker.Length
-            && content[(end + 1 - marker.Length)..(end + 1)].SequenceEqual(marker);
+        int keyword = content.LastIndexOf("startxref"u8);
+        if (keyword < 0) return false;
+
+        int index = keyword + "startxref"u8.Length;
+        int start = index;
+        while (index < content.Length && IsWhitespace(content[index])) index++;
+        if (index == start) return false;
+
+        start = index;
+        while (index < content.Length && content[index] is >= (byte)'0' and <= (byte)'9') index++;
+        if (index == start) return false;
+
+        start = index;
+        while (index < content.Length && IsWhitespace(content[index])) index++;
+        if (index == start) return false;
+
+        if (!content[index..].StartsWith("%%EOF"u8)) return false;
+        index += 5;
+        while (index < content.Length && IsWhitespace(content[index])) index++;
+        return index == content.Length;
     }
 
     private static bool IsWhitespace(byte value) =>

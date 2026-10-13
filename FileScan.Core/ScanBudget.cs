@@ -10,7 +10,9 @@ internal sealed class ScanBudget
     private readonly long _maxTotalDecompressedBytes;
     private readonly int _maxContainerEntries;
     private readonly int _maxEmbeddedFiles;
+    private readonly int _maxPdfObjects;
     private readonly CancellationToken _cancellationToken;
+    private readonly FileScannerOptions _options;
 
     public ScanBudget(FileScannerOptions options, CancellationToken cancellationToken = default)
     {
@@ -18,12 +20,45 @@ internal sealed class ScanBudget
         _maxTotalDecompressedBytes = options.MaxTotalDecompressedBytes;
         _maxContainerEntries = options.MaxContainerEntries;
         _maxEmbeddedFiles = options.MaxEmbeddedFiles;
+        _maxPdfObjects = options.MaxPdfObjects;
+        _options = options;
         _cancellationToken = cancellationToken;
     }
+
+    /// <summary>
+    /// Orçamento novo com os MESMOS limites e o mesmo cancelamento, para a guarda pré-Open: ela
+    /// decodifica object streams uma vez e a inspeção real decodifica de novo — somar as duas num
+    /// só orçamento cortaria pela metade a capacidade dos PDFs legítimos.
+    /// </summary>
+    public ScanBudget CreateSibling() => new(_options, _cancellationToken);
 
     public long ExpandedBytes { get; private set; }
     public int Entries { get; private set; }
     public int EmbeddedFiles { get; private set; }
+    public int PdfObjects { get; private set; }
+
+    public void ConsumePdfObject()
+    {
+        ThrowIfCancellationRequested();
+        PdfObjects++;
+        if (PdfObjects > _maxPdfObjects)
+            throw new ScanLimitExceededException(
+                $"limite agregado de {_maxPdfObjects} objetos PDF excedido");
+    }
+
+    /// <summary>
+    /// Recusa ANTES de decodificar quando o pior caso de saída já não cabe no orçamento (ex.: o
+    /// atalho 'z' do ASCII85 expande 1 byte em 4). Não consome orçamento: quem decodifica cobra o
+    /// tamanho real depois, com <see cref="CopyExpanded"/>.
+    /// </summary>
+    public void EnsureCanExpand(long worstCaseBytes, string context)
+    {
+        ThrowIfCancellationRequested();
+        long allowed = Math.Min(_maxDecompressedBytesPerStream, _maxTotalDecompressedBytes - ExpandedBytes);
+        if (worstCaseBytes > allowed)
+            throw new ScanLimitExceededException(
+                $"expansão potencial de {worstCaseBytes} bytes excede o orçamento de {allowed} bytes ({context})");
+    }
 
     public void ConsumeEntry(string context)
     {

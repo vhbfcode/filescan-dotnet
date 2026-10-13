@@ -37,6 +37,22 @@ user-uploaded file to a browser, you **must**:
 Treating a `Clean` verdict as a license to render the file inline on the application's
 own origin re-introduces the stored-XSS risk that FileScan reduced.
 
+**Trailing bytes after a PDF's final `%%EOF`.** Nothing is tolerated: after the last `startxref`
+only `<offset>`, `%%EOF` and whitespace are accepted, anything else (HTML, a second `%%EOF`, loose
+objects, UTF-16 text) is `NotInspected`. A textual scan of such a tail can never end in `Clean`.
+The same holds inside the file: every non-whitespace/non-comment byte must belong to an indirect
+object, an xref table/trailer or a `startxref` line (byte-coverage check).
+
+**0.2.0 and earlier: denial of service of the host process.** A crafted PDF (cyclic or very deep
+`/Names /Dests /Kids` name tree, very deep page tree, cycles/long chains of indirect-reference aliases)
+makes `PdfPig` 0.1.16 overflow the stack inside `PdfDocument.Open`; a .NET stack overflow is not
+catchable, so the process hosting FileScan dies. Fixed in 0.3.0 by a guard that runs before `Open`.
+**0.3.0 is intermediate and its pre-open guard is best effort.** It blocks the trivial attack but a file
+built on purpose can still crash the hosting process; 0.4.0 will run `PdfDocument.Open` in a separate process
+(crash/timeout ⇒ `NotInspected`). Until then, restrict who can upload and keep the scanner where a restart is cheap.
+CI must gate on the exit code of `dotnet test`: the "Passed! N tests" summary printed before an abort can
+mislead anyone who reads only the text.
+
 ### Responsabilidades de quem chama (ao servir os arquivos) — pt-BR
 
 O FileScan **apenas escaneia**: ele inspeciona o upload e devolve um veredito — nunca

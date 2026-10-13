@@ -16,8 +16,11 @@ public sealed class FileScannerOptions
     /// <summary>Default de <see cref="MaxTotalDecompressedBytes"/>: 64 MB por scan.</summary>
     public const long DefaultMaxTotalDecompressedBytes = 64 * 1024 * 1024;
 
-    /// <summary>Default de <see cref="MaxContainerEntries"/>: 1.024 objetos/entradas/streams.</summary>
+    /// <summary>Default de <see cref="MaxContainerEntries"/>: 1.024 entradas de container (OOXML).</summary>
     public const int DefaultMaxContainerEntries = 1024;
+
+    /// <summary>Default de <see cref="MaxPdfObjects"/>: 50.000 objetos PDF por scan.</summary>
+    public const int DefaultMaxPdfObjects = 50_000;
 
     /// <summary>Default de <see cref="MaxEmbeddedFiles"/>: 50 anexos por scan.</summary>
     public const int DefaultMaxEmbeddedFiles = 50;
@@ -29,6 +32,7 @@ public sealed class FileScannerOptions
     internal const long MaxSupportedDecompressedBytesPerStream = 256L * 1024 * 1024;
     internal const long MaxSupportedTotalDecompressedBytes = 1024L * 1024 * 1024;
     internal const int MaxSupportedContainerEntries = 100_000;
+    internal const int MaxSupportedPdfObjects = 1_000_000;
     internal const int MaxSupportedEmbeddedFiles = 10_000;
     internal const int MaxSupportedEmbeddedDepth = 16;
 
@@ -44,8 +48,15 @@ public sealed class FileScannerOptions
     /// </summary>
     public long MaxTotalDecompressedBytes { get; set; } = DefaultMaxTotalDecompressedBytes;
 
-    /// <summary>Quantidade agregada máxima de objetos, streams e entradas de container por scan.</summary>
+    /// <summary>Quantidade agregada máxima de entradas de container (OOXML) por scan. Os objetos de PDF têm limite próprio: <see cref="MaxPdfObjects"/>.</summary>
     public int MaxContainerEntries { get; set; } = DefaultMaxContainerEntries;
+
+    /// <summary>
+    /// Quantidade agregada máxima de objetos PDF (inclui os dos PDFs embutidos) por scan. Separada
+    /// de <see cref="MaxContainerEntries"/>, que continua valendo para entradas de container (OOXML):
+    /// PDFs reais de seguradora/ERP passam de 1.024 objetos com facilidade.
+    /// </summary>
+    public int MaxPdfObjects { get; set; } = DefaultMaxPdfObjects;
 
     /// <summary>Quantidade agregada máxima de arquivos embutidos por scan.</summary>
     public int MaxEmbeddedFiles { get; set; } = DefaultMaxEmbeddedFiles;
@@ -68,6 +79,7 @@ public sealed class FileScannerOptions
         MaxDecompressedBytesPerStream = MaxDecompressedBytesPerStream,
         MaxTotalDecompressedBytes = MaxTotalDecompressedBytes,
         MaxContainerEntries = MaxContainerEntries,
+        MaxPdfObjects = MaxPdfObjects,
         MaxEmbeddedFiles = MaxEmbeddedFiles,
         MaxEmbeddedDepth = MaxEmbeddedDepth,
         AllowedExtensions = AllowedExtensions is null ? null! : [.. AllowedExtensions],
@@ -95,6 +107,10 @@ public sealed class FileScannerOptions
         if (MaxContainerEntries is <= 0 or > MaxSupportedContainerEntries)
             throw new ArgumentOutOfRangeException(nameof(MaxContainerEntries),
                 $"deve estar entre 1 e {MaxSupportedContainerEntries}");
+
+        if (MaxPdfObjects is <= 0 or > MaxSupportedPdfObjects)
+            throw new ArgumentOutOfRangeException(nameof(MaxPdfObjects),
+                $"deve estar entre 1 e {MaxSupportedPdfObjects}");
 
         if (MaxEmbeddedFiles is <= 0 or > MaxSupportedEmbeddedFiles)
             throw new ArgumentOutOfRangeException(nameof(MaxEmbeddedFiles),

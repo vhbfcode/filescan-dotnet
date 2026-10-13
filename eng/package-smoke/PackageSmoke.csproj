@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <FileScanPackageVersion Condition="'$(FileScanPackageVersion)' == ''">0.2.0</FileScanPackageVersion>
+    <FileScanPackageVersion Condition="'$(FileScanPackageVersion)' == ''">0.3.0</FileScanPackageVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Deliberadamente PackageReference: este smoke test não pode enxergar o projeto Core. -->

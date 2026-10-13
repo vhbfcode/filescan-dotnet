@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Processo FILHO dos testes diferenciais da guarda pré-Open: varre cada PDF de uma pasta e imprime o veredito.
+    Um estouro de pilha (não capturável) derruba SÓ este processo; o teste vê a saída truncada e o exit code.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FileScan.Core\FileScan.Core.csproj" />
+  </ItemGroup>
+
+</Project>

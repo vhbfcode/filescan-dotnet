@@ -62,9 +62,9 @@ public class Adversarial020ContractTests
             (await Make().ScanAsync("x.pdf", Samples.PdfWithShortTruncatedIncrementalUpdate())).Verdict);
 
     [Fact]
-    public async Task BytesAfterFinalEof_AreNotInspected()
+    public async Task BinaryBytesAfterFinalEof_AreNotInspected()
         => Assert.Equal(ScanVerdict.NotInspected,
-            (await Make().ScanAsync("x.pdf", Samples.PdfWithBytesAfterFinalEof())).Verdict);
+            (await Make().ScanAsync("x.pdf", Samples.PdfWithBinaryBytesAfterFinalEof())).Verdict);
 
     [Fact]
     public async Task UnterminatedLiteralContainingOnlyEof_IsNotInspected()
@@ -116,13 +116,14 @@ public class Adversarial020ContractTests
             (await Make().ScanAsync("x.pdf", Samples.PdfWithCyclicEfReference())).Verdict);
 
     [Fact]
-    public async Task UnrelatedEfDictionaryOutsideFileSpec_IsNotTreatedAsAttachment()
-        => Assert.Equal(ScanVerdict.Clean,
+    public async Task EfDictionaryOutsideTypedFileSpec_IsTreatedAsFileSpec_AndRejected()
+        // 0.3.0 (VOLTA r1, item 3): qualquer dicionário com /EF é FileSpec; /Type /Filespec é opcional.
+        => Assert.Equal(ScanVerdict.Rejected,
             (await Make().ScanAsync("x.pdf", Samples.PdfWithUnrelatedCatalogEfKey())).Verdict);
 
     [Fact]
-    public async Task UnrelatedEfScalarOutsideFileSpec_IsNotTreatedAsAttachment()
-        => Assert.Equal(ScanVerdict.Clean,
+    public async Task EfScalarOutsideTypedFileSpec_IsMalformedAndNotInspected()
+        => Assert.Equal(ScanVerdict.NotInspected,
             (await Make().ScanAsync("x.pdf", Samples.PdfWithUnrelatedCatalogEfKey(scalar: true))).Verdict);
 
     [Fact]
@@ -211,8 +212,9 @@ public class Adversarial020ContractTests
             (await Make().ScanAsync("x.pdf", Samples.PdfWithUnrelatedEmbeddedFilesKey())).Verdict);
 
     [Fact]
-    public async Task FileSpecFsOutsideFileAttachment_IsNotTreatedAsAttachment()
-        => Assert.Equal(ScanVerdict.Clean,
+    public async Task FileSpecWithEfReachedThroughACustomKey_IsStillRejected()
+        // O dicionário em si tem /EF: é FileSpec independentemente de quem o referencia (/FS custom).
+        => Assert.Equal(ScanVerdict.Rejected,
             (await Make().ScanAsync("x.pdf", Samples.PdfWithUnrelatedCustomFsKey())).Verdict);
 
     [Fact]
@@ -243,11 +245,6 @@ public class Adversarial020ContractTests
     public async Task UnsupportedPredictor_IsNotInspected()
         => Assert.Equal(ScanVerdict.NotInspected,
             (await Make().ScanAsync("x.pdf", Samples.PdfWithUnknownPredictor())).Verdict);
-
-    [Fact]
-    public async Task ChainedFilters_AreNotInspected()
-        => Assert.Equal(ScanVerdict.NotInspected,
-            (await Make().ScanAsync("x.pdf", Samples.PdfWithFilterChain())).Verdict);
 
     [Fact]
     public async Task EmbeddedDepthExactlyAtMaximum_CanComplete()
@@ -295,7 +292,8 @@ public class Adversarial020ContractTests
     [Fact]
     public async Task AggregateEntryBudgetAcrossPdf_IsNotInspected()
     {
-        var options = new FileScannerOptions { MaxContainerEntries = 6 };
+        // 3 objetos do esqueleto + 3 streams = 6 objetos; 5 não cabe (0.3.0: MaxPdfObjects).
+        var options = new FileScannerOptions { MaxPdfObjects = 5 };
         var pdf = Samples.PdfWithManySmallFlateStreams(count: 3, expandedBytesPerStream: 8);
         Assert.Equal(ScanVerdict.NotInspected, (await Make(options).ScanAsync("x.pdf", pdf)).Verdict);
     }

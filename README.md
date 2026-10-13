@@ -47,8 +47,23 @@ Three validation layers, in order:
 2. **Active content** (multi-format heuristics): detects script injection per file type —
    - **PDF**: an Apache-2.0 structural parser validates xref/trailer, indirect references and object
      streams; JavaScript (`/JavaScript`, `/JS`), `/Launch`, and attachments are inspected recursively
-     with shared depth/entry/decompression budgets. Unsupported filters, predictors, encryption or
-     ambiguous structures return `NotInspected`. Hex-encoded names (`/J#53` ≡ `/JS`) are normalized.
+     with shared depth/object/decompression budgets. Streams may use `FlateDecode`,
+     `ASCII85Decode` and `ASCIIHexDecode`, alone or chained (up to 4 filters, every step charged to
+     the expansion budget), with PNG predictors (`/Predictor 10-15`, e.g. xref streams); image
+     streams (`/Subtype /Image`) that are not attachments are not decoded because their bytes are
+     never read as PDF syntax. After the last `startxref` only `<offset>`, `%%EOF` and whitespace
+     are accepted: any other trailing byte (HTML, a second `%%EOF`, loose objects) is `NotInspected`.
+     Unsupported filters (LZW, RunLength...), the TIFF predictor, encryption and ambiguous
+     structures also return `NotInspected`. The whole file must also be covered by objects, xref
+     tables/trailers and `startxref` lines (whitespace and comments aside): text, HTML or binary
+     between objects, or before a fake `startxref`, is `NotInspected`. A pre-open guard (PdfPig tokenizers,
+     fail-closed) also refuses structures that make the PDF parser recurse without bound — cyclic or deep
+     name trees, deep page trees, cyclic reference chains — which would otherwise kill the host process.
+     The guard is best effort: a crafted file may still crash the process until 0.4.0 isolates `Open` in a separate
+     process — restrict who can upload meanwhile (see SECURITY.md). Known false positives: an update that
+     restructures the page tree, slightly wrong xref offsets, a non-zero generation together with `N 0 obj` text in an unfiltered
+     stream (see CHANGELOG).
+     Hex-encoded names (`/J#53` ≡ `/JS`) are normalized.
    - **Office OOXML** (`docx`/`xlsx`): unzips and looks for DDE, macros (`vbaProject`), formula
      injection, and OLE objects.
    - **CSV**: formula/command injection per **OWASP** (cell starting with `=` `@` Tab, or `+`/`-`
@@ -92,7 +107,7 @@ optional `IVirusScanner` interface — that is exactly how this repo's API plugs
 
 To produce the NuGet package locally: `dotnet pack FileScan.Core -c Release -o artifacts`.
 
-Releases are published by tagging (`git tag v0.2.0 && git push origin v0.2.0`) to
+Releases are published by tagging (`git tag v0.3.0 && git push origin v0.3.0`) to
 **[nuget.org](https://www.nuget.org/packages/FileScan.Core)** (via Trusted Publishing / OIDC —
 no long-lived keys) and to **GitHub Packages**. Before hashing, package ZIP timestamps are
 normalized to the commit timestamp, so a retry of the same tag recreates the same artifact rather
@@ -182,7 +197,8 @@ Interactive docs (Swagger UI) are served at `/swagger`.
 | `MaxFileSizeBytes` | `26214400` (25 MB) | Maximum accepted file size (also drives the request body limit, plus a small margin) |
 | `MaxDecompressedBytesPerStream` | `16777216` (16 MB) | Per-stream/attachment cap on decompressed bytes (zip-bomb guard) |
 | `MaxTotalDecompressedBytes` | `67108864` (64 MB) | Aggregate expansion budget shared by PDF, OOXML and recursive attachments |
-| `MaxContainerEntries` | `1024` | Aggregate object/stream/container-entry budget per scan |
+| `MaxContainerEntries` | `1024` | Aggregate container-entry budget per scan (OOXML zip entries) |
+| `MaxPdfObjects` | `50000` | Aggregate PDF object budget per scan (includes embedded PDFs) |
 | `MaxEmbeddedFiles` / `MaxEmbeddedDepth` | `50` / `3` | Aggregate attachment count and recursive PDF depth limits |
 | `AllowedExtensions` | `pdf,doc,docx,xls,xlsx,csv,jpg,jpeg,png` | Accepted extension allowlist; empty = no restriction |
 | `ApiKey` | `""` | Requires the `X-Api-Key` header when set |

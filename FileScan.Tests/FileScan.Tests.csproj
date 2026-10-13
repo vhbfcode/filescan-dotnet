@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FileScan.Api\FileScan.Api.csproj" />
+    <!-- Só para compilar antes: o teste diferencial executa o processo filho a partir da pasta de saída dele. -->
+    <ProjectReference Include="..\FileScan.Tests.Child\FileScan.Tests.Child.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

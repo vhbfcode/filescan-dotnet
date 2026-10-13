@@ -1,8 +1,8 @@
 # Publica o FileScan.Core no GitHub Packages E no nuget.org a cada tag de versão.
 #
 # Fluxo de release:
-#   git tag v0.2.0 && git push origin v0.2.0
-# A versão do pacote vem da TAG (v0.2.0 -> 0.2.0), sobrepondo o Version do
+#   git tag v0.3.0 && git push origin v0.2.0
+# A versão do pacote vem da TAG (v0.3.0 -> 0.3.0), sobrepondo o Version do
 # Directory.Build.props — a tag é a fonte da verdade do release.
 #
 # Sem nenhum secret manual:

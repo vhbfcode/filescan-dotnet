@@ -48,8 +48,22 @@ Três camadas de validação, em ordem:
 2. **Conteúdo ativo** (heurística multi-formato): detecta injeção de script por tipo de arquivo —
    - **PDF**: um parser estrutural Apache-2.0 valida xref/trailer, referências indiretas e object
      streams; JavaScript (`/JavaScript`, `/JS`), `/Launch` e anexos são inspecionados recursivamente
-     com orçamento compartilhado de profundidade, entradas e descompressão. Filtro, predictor,
-     criptografia ou estrutura ambígua não suportada devolve `NotInspected`.
+     com orçamento compartilhado de profundidade, objetos e descompressão. Streams podem usar
+     `FlateDecode`, `ASCII85Decode` e `ASCIIHexDecode`, sozinhos ou encadeados (até 4 filtros, cada
+     etapa cobrada no orçamento de expansão), com predictor PNG (`/Predictor 10-15`, ex.: xref
+     streams); streams de imagem (`/Subtype /Image`) que não são anexo não são decodificados, pois
+     seus bytes nunca são lidos como sintaxe PDF. Depois do último `startxref` só são aceitos
+     `<offset>`, `%%EOF` e whitespace: qualquer outro byte final (HTML, um 2º `%%EOF`, objetos
+     soltos) devolve `NotInspected`. Filtro não suportado (LZW, RunLength...), predictor TIFF,
+     criptografia e estrutura ambígua também devolvem `NotInspected`. O arquivo inteiro também precisa
+     ser coberto por objetos, tabelas xref/trailer e linhas `startxref` (fora whitespace e comentários):
+     texto, HTML ou binário entre objetos, ou antes de um `startxref` falso, devolve `NotInspected`. Uma guarda
+     pré-abertura (tokenizadores do PdfPig, fail-closed) também recusa estruturas que fariam o parser recursar
+     sem limite — name trees cíclicas ou profundas, árvores de páginas profundas, cadeias de referências
+     cíclicas — e que derrubariam o processo hospedeiro. A guarda é melhor esforço: um arquivo
+     construído de propósito ainda pode derrubar o processo até a 0.4.0 isolar o `Open` em processo separado —
+     restrinja quem faz upload nesse intervalo (ver SECURITY.md). Falsos positivos conhecidos: atualização que
+     reestrutura a árvore de páginas, offsets de xref levemente errados (ver CHANGELOG).
    - **Office OOXML** (`docx`/`xlsx`): descompacta o ZIP e procura DDE, macros (`vbaProject`),
      formula injection e objetos OLE.
    - **CSV**: formula/command injection conforme **OWASP** (célula iniciando com `=` `@` Tab, ou
@@ -93,7 +107,7 @@ via a interface opcional `IVirusScanner` — é exatamente assim que a API deste
 
 Para gerar o pacote NuGet localmente: `dotnet pack FileScan.Core -c Release -o artifacts`.
 
-Releases são publicados via tag (`git tag v0.2.0 && git push origin v0.2.0`) no
+Releases são publicados via tag (`git tag v0.3.0 && git push origin v0.3.0`) no
 **[nuget.org](https://www.nuget.org/packages/FileScan.Core)** (via Trusted Publishing / OIDC —
 sem chave de longa duração) e no **GitHub Packages**. Antes do hash, os timestamps ZIP do pacote
 são normalizados para o timestamp do commit; assim, o retry da mesma tag recria o mesmo artefato,
@@ -185,7 +199,8 @@ A documentação interativa (Swagger UI) fica em `/swagger`.
 | `MaxFileSizeBytes` | `26214400` (25 MB) | Tamanho máximo do arquivo (também define o teto do request, + margem) |
 | `MaxDecompressedBytesPerStream` | `16777216` (16 MB) | Cap de bytes descomprimidos por stream/anexo (guarda anti zip-bomb) |
 | `MaxTotalDecompressedBytes` | `67108864` (64 MB) | Orçamento agregado compartilhado por PDF, OOXML e anexos recursivos |
-| `MaxContainerEntries` | `1024` | Orçamento agregado de objetos/streams/entradas por scan |
+| `MaxContainerEntries` | `1024` | Orçamento agregado de entradas de container por scan (entradas zip do OOXML) |
+| `MaxPdfObjects` | `50000` | Orçamento agregado de objetos PDF por scan (inclui PDFs embutidos) |
 | `MaxEmbeddedFiles` / `MaxEmbeddedDepth` | `50` / `3` | Quantidade agregada de anexos e profundidade recursiva de PDF |
 | `AllowedExtensions` | `pdf,doc,docx,xls,xlsx,csv,jpg,jpeg,png` | Allowlist de extensões aceitas; vazio = não restringe |
 | `ApiKey` | `""` | Exige o header `X-Api-Key` quando preenchida |

@@ -21,9 +21,13 @@ public sealed class FileScanOptions
     [Range(64 * 1024, 1024L * 1024 * 1024)]
     public long MaxTotalDecompressedBytes { get; set; } = 64 * 1024 * 1024;
 
-    /// <summary>Quantidade agregada máxima de objetos/streams/entradas por scan.</summary>
+    /// <summary>Quantidade agregada máxima de entradas de container (OOXML) por scan.</summary>
     [Range(1, 100_000)]
     public int MaxContainerEntries { get; set; } = 1024;
+
+    /// <summary>Quantidade agregada máxima de objetos PDF por scan (inclui PDFs embutidos).</summary>
+    [Range(1, 1_000_000)]
+    public int MaxPdfObjects { get; set; } = 50_000;
 
     /// <summary>Quantidade agregada máxima de arquivos embutidos.</summary>
     [Range(1, 10_000)]
@@ -72,6 +76,7 @@ public sealed class FileScanOptions
         MaxDecompressedBytesPerStream = MaxDecompressedBytesPerStream,
         MaxTotalDecompressedBytes = MaxTotalDecompressedBytes,
         MaxContainerEntries = MaxContainerEntries,
+        MaxPdfObjects = MaxPdfObjects,
         MaxEmbeddedFiles = MaxEmbeddedFiles,
         MaxEmbeddedDepth = MaxEmbeddedDepth,
         AllowedExtensions = AllowedExtensions,
