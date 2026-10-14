@@ -20,10 +20,12 @@
   a `dotnet` runtime cannot start the worker (see "No silent fallback").
 - `Isolation = InProcess` keeps the 0.3.0 behaviour. It is **unsafe for hostile PDFs** and exists for tests and
   for environments that cannot start processes and accept the risk.
-- **No silent fallback.** Worker missing, incomplete, of another version, not startable (no `dotnet` host, OS
-  limits not applicable) → that scan is `NotInspected` with a `... erro de configuração ...` reason, the
-  `OnIsolationEvent` callback receives the details, and the service keeps trying on the next scan (fix the
-  packaging and it recovers without a restart). It never runs the scan in-process on its own.
+- **No silent fallback.** The scan is `NotInspected`, never in-process, when the worker is missing/incomplete/of
+  another version (Reason contains `erro de configuração do isolamento`) or cannot be started (no `dotnet` host, the
+  OS limits cannot be applied, bad handshake: Reason is `inspeção isolada não concluída: o worker não pôde ser
+  iniciado: <short category>`). The Reason sent to API clients carries **no server paths**; the details go only to
+  the `OnIsolationEvent` callback. The service tries again on the next scan (fix the packaging and it recovers
+  without a restart).
 - New options (all validated): `Isolation`, `WorkerTimeout` (default 20 s), `WorkerPoolSize` (default
   half the cores, 1–4), `WorkerRecycleAfterScans` (default 100), `WorkerMaxMemoryBytes` (default 2 GiB, 0 = none),
   `WorkerPath` (explicit `FileScan.Worker.dll`), `OnIsolationEvent` (your logger; file names and worker stderr are

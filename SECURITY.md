@@ -89,8 +89,9 @@ shipped inside the NuGet package. What this gives you, and what it does not:
 - **Enforced:** a worker that crashes, runs out of memory, exceeds `WorkerTimeout` (20 s), answers invalid JSON, an
   incoherent result or a truncated stream is killed (whole process tree, only the PID the library started), replaced
   on the next scan, and the scan returns `NotInspected` — never `Clean`. Cancellation kills the worker and
-  propagates. A worker that cannot be found or started (missing files, no `dotnet` host, OS limits that cannot be
-  applied) also yields `NotInspected` with a configuration error and an `OnIsolationEvent` notification. There is
+  propagates. A worker that cannot be found (Reason: `erro de configuração do isolamento`) or started (no `dotnet`
+  host, OS limits that cannot be applied, bad handshake: Reason `o worker não pôde ser iniciado: <category>`) also
+  yields `NotInspected`, with the details (paths included) only in the `OnIsolationEvent` notification. There is
   **no silent fallback** to in-process parsing.
 - **Windows:** Job Object per worker — `KILL_ON_JOB_CLOSE`, a single process (no children), a committed-memory cap,
   no crash dialog.
@@ -114,8 +115,9 @@ dentro do pacote NuGet. O que isso garante e o que não garante:
 - **Garantido:** worker que cai, estoura memória, passa de `WorkerTimeout` (20 s), responde JSON inválido, resultado
   incoerente ou fluxo truncado é morto (árvore de processos inteira, só o PID que a biblioteca iniciou), substituído
   no próximo scan, e o scan devolve `NotInspected` — nunca `Clean`. O cancelamento mata o worker e é propagado.
-  Worker ausente ou impossível de iniciar (arquivos faltando, sem host `dotnet`, limites do SO não aplicáveis)
-  também dá `NotInspected` com erro de configuração e notificação em `OnIsolationEvent`. **Não há fallback
+  Worker ausente (Reason: `erro de configuração do isolamento`) ou impossível de iniciar (sem host `dotnet`, limites do
+  SO não aplicáveis, handshake inválido: Reason `o worker não pôde ser iniciado: <categoria>`) também dá `NotInspected`,
+  com os detalhes (caminhos inclusive) só na notificação `OnIsolationEvent`. **Não há fallback
   silencioso** para o parsing em processo.
 - **Windows:** Job Object por worker — `KILL_ON_JOB_CLOSE`, um único processo (sem filhos), teto de memória
   comprometida, sem diálogo de crash.
