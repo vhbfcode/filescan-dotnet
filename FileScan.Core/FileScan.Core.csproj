@@ -8,7 +8,7 @@
   -->
 
   <PropertyGroup>
-    <Description>Fail-closed upload validation for .NET, in-process: real content-type checking, bounded structural PDF parsing, recursive embedded-file inspection, and active-content detection for PDF/Office/CSV/images. Optional pluggable antivirus via IVirusScanner. Defense-in-depth, not a malware certificate or certified CDR.</Description>
+    <Description>Fail-closed upload validation for .NET: real content-type checking, bounded structural PDF parsing, recursive embedded-file inspection, and active-content detection for PDF/Office/CSV/images. PDF parsing runs in an isolated worker process by default (a PdfPig stack overflow cannot take down the host). Optional pluggable antivirus via IVirusScanner. Defense-in-depth, not a malware certificate or certified CDR.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
@@ -36,5 +36,35 @@
     <PackageReference Include="Mime-Detective" />
     <PackageReference Include="PdfPig" />
   </ItemGroup>
+
+  <!--
+    O FileScan.Worker (processo filho) vai DENTRO do nupkg e acompanha o output/publish de quem referencia o Core
+    (por pacote OU por ProjectReference). O worker compila os fontes do Core, então a referência é só de build
+    (ordem + restore): ReferenceOutputAssembly=false e PrivateAssets=all => não vira dependência do nuspec.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\FileScan.Worker\FileScan.Worker.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="build\FileScan.Core.targets" Pack="true" PackagePath="build\" />
+  </ItemGroup>
+
+  <Target Name="IncludeWorkerFiles" DependsOnTargets="ResolveProjectReferences"
+          BeforeTargets="AssignTargetPaths;_GetPackageFiles">
+    <MSBuild Projects="..\FileScan.Worker\FileScan.Worker.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="_WorkerDll" />
+    </MSBuild>
+    <PropertyGroup>
+      <_WorkerDir>$([System.IO.Path]::GetDirectoryName('$(_WorkerDll)'))$([System.IO.Path]::DirectorySeparatorChar)</_WorkerDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_WorkerFile Include="$(_WorkerDir)**" Exclude="$(_WorkerDir)**\*.pdb;$(_WorkerDir)**\*.xml" />
+      <None Include="@(_WorkerFile)"
+            Link="filescan-worker\%(RecursiveDir)%(Filename)%(Extension)"
+            CopyToOutputDirectory="PreserveNewest"
+            CopyToPublishDirectory="PreserveNewest"
+            Pack="true"
+            PackagePath="tools\filescan-worker\%(RecursiveDir)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

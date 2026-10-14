@@ -28,6 +28,17 @@ public sealed class FileScannerOptions
     /// <summary>Default de <see cref="MaxEmbeddedDepth"/>: três níveis de PDF embutido.</summary>
     public const int DefaultMaxEmbeddedDepth = 3;
 
+    /// <summary>Default de <see cref="WorkerTimeout"/>: 20 segundos por scan.</summary>
+    public static readonly TimeSpan DefaultWorkerTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>Default de <see cref="WorkerRecycleAfterScans"/>: o worker é reciclado a cada 100 scans.</summary>
+    public const int DefaultWorkerRecycleAfterScans = 100;
+
+    /// <summary>Default de <see cref="WorkerMaxMemoryBytes"/>: 2 GiB por worker.</summary>
+    public const long DefaultWorkerMaxMemoryBytes = 2L * 1024 * 1024 * 1024;
+
+    internal const int MaxSupportedWorkerPoolSize = 32;
+
     internal const long MaxSupportedFileSizeBytes = 2L * 1024 * 1024 * 1024;
     internal const long MaxSupportedDecompressedBytesPerStream = 256L * 1024 * 1024;
     internal const long MaxSupportedTotalDecompressedBytes = 1024L * 1024 * 1024;
@@ -73,6 +84,49 @@ public sealed class FileScannerOptions
     /// <summary>O que fazer ao detectar conteúdo ativo (JS, macros, DDE, fórmulas, polyglot...).</summary>
     public ActiveContentAction OnActiveContent { get; set; } = ActiveContentAction.Reject;
 
+    /// <summary>
+    /// ONDE o conteúdo é inspecionado. O default é <see cref="IsolationMode.Worker"/>: o
+    /// <c>PdfDocument.Open</c> do PdfPig recursa sem limite e um estouro de pilha NÃO é capturável —
+    /// derruba o processo hospedeiro; a única defesa robusta é rodá-lo em um processo filho.
+    /// <see cref="IsolationMode.InProcess"/> é INSEGURO para PDF hostil e existe só para testes e
+    /// ambientes que não podem criar processos filhos e aceitam o risco.
+    /// </summary>
+    public IsolationMode Isolation { get; set; } = IsolationMode.Worker;
+
+    /// <summary>
+    /// Tempo máximo de UM scan no worker (default 20 s). Estourar mata a árvore de processos do worker,
+    /// reinicia-o e devolve <see cref="ScanVerdict.NotInspected"/>. Só vale com <see cref="IsolationMode.Worker"/>.
+    /// </summary>
+    public TimeSpan WorkerTimeout { get; set; } = DefaultWorkerTimeout;
+
+    /// <summary>
+    /// Quantidade de workers quentes do pool (scans simultâneos). Default: metade dos núcleos, entre 1 e 4.
+    /// O pool é compartilhado por todas as instâncias com a mesma configuração de worker no processo.
+    /// </summary>
+    public int WorkerPoolSize { get; set; } = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+
+    /// <summary>Recicla (encerra e recria) o worker a cada N scans, limitando vazamento/fragmentação. Default 100.</summary>
+    public int WorkerRecycleAfterScans { get; set; } = DefaultWorkerRecycleAfterScans;
+
+    /// <summary>
+    /// Teto de memória por worker, em bytes (0 = sem teto). Windows: limite do Job Object (memória
+    /// comprometida do processo) + teto do heap do GC; outros SO: SOMENTE o teto do heap do GC
+    /// (<c>DOTNET_GCHeapHardLimit</c>) — best-effort, não cobre memória nativa. Default 2 GiB.
+    /// </summary>
+    public long WorkerMaxMemoryBytes { get; set; } = DefaultWorkerMaxMemoryBytes;
+
+    /// <summary>
+    /// Caminho explícito do <c>FileScan.Worker.dll</c>. Vazio = <c>filescan-worker/FileScan.Worker.dll</c>
+    /// ao lado do <c>FileScan.Core.dll</c> (onde o pacote NuGet o coloca, inclusive após <c>dotnet publish</c>).
+    /// </summary>
+    public string? WorkerPath { get; set; }
+
+    /// <summary>
+    /// Callback opcional para registrar eventos de isolamento (worker ausente/mal configurado, crash,
+    /// timeout, resposta inválida). Exceções do callback são engolidas. Use para o seu log.
+    /// </summary>
+    public Action<string>? OnIsolationEvent { get; set; }
+
     internal FileScannerOptions Snapshot() => new()
     {
         MaxFileSizeBytes = MaxFileSizeBytes,
@@ -84,6 +138,13 @@ public sealed class FileScannerOptions
         MaxEmbeddedDepth = MaxEmbeddedDepth,
         AllowedExtensions = AllowedExtensions is null ? null! : [.. AllowedExtensions],
         OnActiveContent = OnActiveContent,
+        Isolation = Isolation,
+        WorkerTimeout = WorkerTimeout,
+        WorkerPoolSize = WorkerPoolSize,
+        WorkerRecycleAfterScans = WorkerRecycleAfterScans,
+        WorkerMaxMemoryBytes = WorkerMaxMemoryBytes,
+        WorkerPath = WorkerPath,
+        OnIsolationEvent = OnIsolationEvent,
     };
 
     internal void Validate()
@@ -123,6 +184,22 @@ public sealed class FileScannerOptions
         if (!Enum.IsDefined(OnActiveContent))
             throw new ArgumentOutOfRangeException(nameof(OnActiveContent));
 
+        if (!Enum.IsDefined(Isolation))
+            throw new ArgumentOutOfRangeException(nameof(Isolation));
+
+        if (WorkerTimeout <= TimeSpan.Zero || WorkerTimeout > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(WorkerTimeout), "deve estar entre 1 ms e 30 minutos");
+
+        if (WorkerPoolSize is < 1 or > MaxSupportedWorkerPoolSize)
+            throw new ArgumentOutOfRangeException(nameof(WorkerPoolSize),
+                $"deve estar entre 1 e {MaxSupportedWorkerPoolSize}");
+
+        if (WorkerRecycleAfterScans < 1)
+            throw new ArgumentOutOfRangeException(nameof(WorkerRecycleAfterScans), "deve ser >= 1");
+
+        if (WorkerMaxMemoryBytes != 0 && WorkerMaxMemoryBytes < 64L * 1024 * 1024)
+            throw new ArgumentOutOfRangeException(nameof(WorkerMaxMemoryBytes), "deve ser 0 (sem teto) ou >= 64 MiB");
+
         if (AllowedExtensions is null)
             throw new ArgumentNullException(nameof(AllowedExtensions));
     }
@@ -145,4 +222,21 @@ public enum ActiveContentAction
     /// se o AV não prevalecer. Nunca devolve Clean.
     /// </summary>
     Ignore
+}
+
+/// <summary>Onde a inspeção de conteúdo (e o <c>PdfDocument.Open</c>) é executada.</summary>
+public enum IsolationMode
+{
+    /// <summary>
+    /// No processo hospedeiro. ⚠️ INSEGURO para PDF hostil: o PdfPig 0.1.16 pode estourar a pilha de
+    /// forma não capturável e derrubar o hospedeiro. A guarda pré-Open reduz, mas é melhor esforço.
+    /// </summary>
+    InProcess,
+
+    /// <summary>
+    /// Em processo filho (<c>FileScan.Worker</c>), com timeout, reciclagem e limites do SO.
+    /// Falha do worker ⇒ <see cref="ScanVerdict.NotInspected"/>, jamais <see cref="ScanVerdict.Clean"/>.
+    /// Default.
+    /// </summary>
+    Worker
 }

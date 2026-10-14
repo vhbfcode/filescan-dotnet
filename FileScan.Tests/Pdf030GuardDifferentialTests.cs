@@ -61,51 +61,7 @@ public class Pdf030GuardDifferentialTests
                 void Attack(string name, Func<byte[]> make) =>
                     Emit($"ataque_{name}__{transformName}", ScanVerdictExpectation.NotInspected, Build(apply, make));
 
-                Attack("dests_ciclo2", () => Samples.PdfWithDests(2, cycle: true));
-                Attack("dests_cadeia5000", () => Samples.PdfWithDests(5_000));
-                Attack("paginas20000", () => Samples.PdfWithDeepPageTree(20_000));
-                Attack("info_autoalias", Samples.PdfWithInfoValueSelfAlias);
-                Attack("oculto_em_stream", Samples.PdfWithHiddenObjectsInsideStream);
-
-                // VOLTA r6: filhos DIRETOS em /Kids (Y1..Y3) e objetos escritos em dados de stream fora da xref (B1/B3/B5)
-                Attack("y1_kids_direto", () => Samples.PdfWithDestsDirectKids(1));
-                Attack("y2_kids_direto2", () => Samples.PdfWithDestsDirectKids(2));
-                Attack("y3_kids_array_com_dict", Samples.PdfWithDestsKidsHeldByAnArrayWithDirectDictionary);
-                Attack("f1_dct_com_objetos_livres", () => Samples.PdfWithCycleHiddenAndMarkedFree("dct"));
-                Attack("f2_comentario_com_objetos_livres", () => Samples.PdfWithCycleHiddenAndMarkedFree("comment"));
-                Attack("f3_string_com_objetos_livres", () => Samples.PdfWithCycleHiddenAndMarkedFree("string"));
-                Attack("t1_string_no_em_uso_pendente", () => Samples.PdfWithHiddenCopyOfInUseNode("string", "dangling"));
-                Attack("t2_comentario_no_em_uso_pendente", () => Samples.PdfWithHiddenCopyOfInUseNode("comment", "dangling"));
-                Attack("t3_dct_no_em_uso_pendente", () => Samples.PdfWithHiddenCopyOfInUseNode("dct", "dangling"));
-                Attack("t7_objstm_oculto_pendente", () => Samples.PdfWithHiddenCopyOfTheObjectStream("dangling"));
-                Attack("t8_objstm_container_livre", () => Samples.PdfWithHiddenCopyOfTheObjectStream("containerFree"));
-                Attack("t9_prev_ciclico", () => Samples.PdfWithSelfReferencingPrev(hiddenCopy: true));
-                Attack("o1_secao_xref_orfa", () => Samples.PdfWithOrphanXrefSection(hiddenCopy: true));
-                Attack("t5_geracao", () => Samples.PdfWithHiddenCopyOfInUseNode("string", "generation"));
-                Attack("t6_offsets_trocados", () => Samples.PdfWithHiddenCopyOfInUseNode("comment", "mismatch"));
-                Attack("b1_stream_fora_da_xref", () => Samples.PdfWithCycleOnlyInsideStreamData());
-                Attack("b3_xref_19_bytes", () => Samples.PdfWithCycleOnlyInsideStreamData("19"));
-                Attack("b5_xref_cabecalho_com_espaco", () => Samples.PdfWithCycleOnlyInsideStreamData("headerspace"));
-
-                // ObjStm com e sem /Type, /Type escapado, /Extends
-                foreach (var (label, typePart, extra) in new[]
-                         {
-                             ("objstm", "/Type/ObjStm", ""), ("objstm_semtype", "", ""),
-                             ("objstm_typeescapado", "/Type/Obj#53tm", ""), ("objstm_extends", "", "/Extends 99 0 R"),
-                         })
-                {
-                    Attack($"dests_ciclo2_{label}", () => Samples.PdfWithObjectStream(
-                        Samples.ObjectStreamDocument("/Names<</Dests 10 0 R>>", Samples.DestsChain(2, cycle: true)),
-                        typePart, extra));
-                }
-                Attack("dests_cadeia5000_objstm_semtype", () => Samples.PdfWithObjectStream(
-                    Samples.ObjectStreamDocument("/Names<</Dests 10 0 R>>", Samples.DestsChain(5_000)), ""));
-
-                // revisões: ciclo na definição ANTIGA (a nova o quebra) e ciclo na definição NOVA
-                Attack("revisao_ciclo_antigo", () => Samples.AppendUpdate(Samples.PdfWithDests(2, cycle: true),
-                    (10, "<</Names[(a)[3 0 R/Fit]]>>")));
-                Attack("revisao_ciclo_novo", () => Samples.AppendUpdate(Samples.PdfWithDests(3),
-                    (12, "<</Kids[10 0 R]>>")));
+                GuardAttackCorpus.Register(Attack);
 
                 // controles legítimos: as mesmas transformações NÃO podem fazer a guarda recusar o que é normal.
                 // (Comentário DENTRO de uma referência "n %c 0 R" não é legítimo para a gramática de cobertura:

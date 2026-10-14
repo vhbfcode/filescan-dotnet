@@ -48,6 +48,20 @@ public sealed class FileScanOptions
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Onde o conteúdo (e o PdfDocument.Open do PdfPig) é inspecionado. Default <c>Worker</c> (processo filho 
+    /// <c>FileScan.Worker</c>, dentro do publish da API); <c>InProcess</c> é INSEGURO para PDF hostil.
+    /// </summary>
+    public IsolationMode Isolation { get; set; } = IsolationMode.Worker;
+
+    /// <summary>Tempo máximo, em segundos, de um scan no worker. Default 20.</summary>
+    [Range(1, 1800)]
+    public int WorkerTimeoutSeconds { get; set; } = 20;
+
+    /// <summary>Workers quentes simultâneos. Default: metade dos núcleos (1 a 4).</summary>
+    [Range(1, 32)]
+    public int WorkerPoolSize { get; set; } = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+
     public ClamAvOptions ClamAv { get; set; } = new();
 
     public ActiveContentOptions ActiveContent { get; set; } = new();
@@ -81,6 +95,9 @@ public sealed class FileScanOptions
         MaxEmbeddedDepth = MaxEmbeddedDepth,
         AllowedExtensions = AllowedExtensions,
         OnActiveContent = ActiveContent.OnDetected,
+        Isolation = Isolation,
+        WorkerTimeout = TimeSpan.FromSeconds(WorkerTimeoutSeconds),
+        WorkerPoolSize = WorkerPoolSize,
     };
 
     public sealed class RateLimitOptions

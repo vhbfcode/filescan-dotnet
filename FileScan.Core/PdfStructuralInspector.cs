@@ -37,6 +37,12 @@ internal static class PdfStructuralInspector
         FileAttachment,
     }
 
+    /// <summary>
+    /// SÓ PARA TESTES (visível a FileScan.Tests.Child): desliga a guarda pré-Open para provar que o isolamento
+    /// em processo separado sobrevive a um ataque que a guarda NÃO pega. Nunca é desligada em produção.
+    /// </summary>
+    internal static volatile bool PreOpenGuardEnabled = true;
+
     public static PdfStructuralInspection Inspect(byte[] content, ScanBudget budget)
     {
         budget.ThrowIfCancellationRequested();
@@ -72,8 +78,10 @@ internal static class PdfStructuralInspector
         //    name tree /Dests, cadeias de referências indiretas e profundidade da árvore de páginas;
         //    estouro de pilha derruba o processo. A guarda lê com os tokenizadores do próprio PdfPig e
         //    recusa o que não entende. PDF criptografado nem abre. Ver PdfPreOpenGuard.
-        var guard = PdfPreOpenGuard.Check(content, coverage, budget,
-            decoded => PdfNameScanner.Scan(decoded, findings, findingsSeen));
+        var guard = !PreOpenGuardEnabled
+            ? new PdfGuardResult(null, false)
+            : PdfPreOpenGuard.Check(content, coverage, budget,
+                decoded => PdfNameScanner.Scan(decoded, findings, findingsSeen));
         if (guard.Encrypted)
         {
             AddOnce(incomplete, incompleteSeen,

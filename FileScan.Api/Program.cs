@@ -95,7 +95,13 @@ builder.Services.AddSingleton<IClamClient>(sp =>
 
 // --- Núcleo de validação (FileScan.Core) — options por instância derivadas da config da API ---
 builder.Services.AddSingleton<FileScannerOptions>(sp =>
-    sp.GetRequiredService<IOptions<FileScanOptions>>().Value.ToScannerOptions());
+{
+    var scannerOptions = sp.GetRequiredService<IOptions<FileScanOptions>>().Value.ToScannerOptions();
+    // Eventos do isolamento (worker ausente, crash, timeout) vão para o log estruturado da API.
+    var isolationLog = sp.GetRequiredService<ILoggerFactory>().CreateLogger("FileScan.Isolation");
+    scannerOptions.OnIsolationEvent = message => isolationLog.LogWarning("{IsolationEvent}", message);
+    return scannerOptions;
+});
 builder.Services.AddSingleton<StructuralValidator>(sp =>
     new StructuralValidator(sp.GetRequiredService<FileScannerOptions>()));
 builder.Services.AddSingleton<ClamAvScanner>();

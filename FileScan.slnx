@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="FileScan.Core/FileScan.Core.csproj" />
+  <Project Path="FileScan.Worker/FileScan.Worker.csproj" />
   <Project Path="FileScan.Api/FileScan.Api.csproj" />
   <Project Path="FileScan.Tests/FileScan.Tests.csproj" />
   <Project Path="FileScan.Tests.Child/FileScan.Tests.Child.csproj" />

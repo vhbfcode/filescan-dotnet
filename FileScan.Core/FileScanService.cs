@@ -19,6 +19,10 @@ public sealed class FileScanService
     private readonly FileScannerOptions _opt;
     private readonly StructuralValidator _structural;
     private readonly IVirusScanner? _virus;
+    private readonly IsolatedFileScanService? _isolated;
+
+    /// <summary>Executor isolado (null em InProcess); exposto aos testes para inspecionar o pool.</summary>
+    internal IsolatedFileScanService? Isolated => _isolated;
 
     public FileScanService(FileScannerOptions options, StructuralValidator? structural = null, IVirusScanner? virusScanner = null)
     {
@@ -32,6 +36,8 @@ public sealed class FileScanService
 
         _structural = structural ?? new StructuralValidator(_opt);
         _virus = virusScanner;
+        // Nunca há fallback silencioso para InProcess: worker ausente => NotInspected + erro de configuração.
+        _isolated = _opt.Isolation == IsolationMode.Worker ? new IsolatedFileScanService(_opt) : null;
     }
 
     /// <summary>Conveniência para consumo como biblioteca: valida um conteúdo já em memória.</summary>
@@ -89,7 +95,63 @@ public sealed class FileScanService
         if (structuralReason is not null)
             return Build(fileName, size, ScanVerdict.Rejected, structuralReason);
 
-        // 2) Conteúdo ativo (PDF, Office, CSV, imagens) com um único orçamento agregado.
+        // 2) Conteúdo ativo (PDF, Office, CSV, imagens) com um único orçamento agregado. Com
+        //    Isolation = Worker este estágio — o único que abre o PDF — roda em processo filho;
+        //    falha/crash/timeout do filho vira NotInspected, nunca Clean (e nunca derruba o hospedeiro).
+        var outcome = _isolated is null
+            ? InspectContentInProcess(fileName, bytes, size, ct)
+            : await _isolated.InspectContentAsync(fileName, bytes, size, ct);
+        ct.ThrowIfCancellationRequested();
+        if (outcome.Terminal is { } terminal)
+            return terminal;
+
+        bool activeContentDetected = outcome.ActiveContentDetected;
+        IReadOnlyList<string>? warnings = outcome.Warnings;
+        bool fullyInspected = outcome.FullyInspected;
+        string? incompleteReason = outcome.IncompleteReason;
+
+        ct.ThrowIfCancellationRequested();
+
+        // 3) Antivírus — camada OPCIONAL/plugável. Sem scanner = roda só estrutural + conteúdo ativo;
+        //    a ausência de antivírus não muda o contrato acima (não inspecionado ≠ limpo).
+        if (_virus is null)
+        {
+            if (activeContentDetected)
+                return Build(fileName, size, ScanVerdict.ActiveContentDetected,
+                    "conteúdo ativo detectado sob a política Flag", warnings);
+
+            return Build(fileName, size, fullyInspected ? ScanVerdict.Clean : ScanVerdict.NotInspected,
+                incompleteReason);
+        }
+
+        using var avStream = new MemoryStream(bytes, writable: false);
+        ct.ThrowIfCancellationRequested();
+        var (verdict, reason) = await _virus.ScanAsync(avStream, ct);
+        ct.ThrowIfCancellationRequested();
+
+        // Malicious/Error (ou outro estado não-Clean) do AV prevalece e conserva sua proveniência.
+        if (verdict != ScanVerdict.Clean)
+            return Build(fileName, size, verdict, reason, engine: _virus.Name);
+
+        // AV Clean nunca promove uma decisão estrutural do FileScan a Clean, e a proveniência
+        // permanece "filescan" porque foi esta camada que tomou a decisão final.
+        if (activeContentDetected)
+            return Build(fileName, size, ScanVerdict.ActiveContentDetected,
+                "conteúdo ativo detectado sob a política Flag", warnings);
+
+        if (!fullyInspected)
+            return Build(fileName, size, ScanVerdict.NotInspected, incompleteReason);
+
+        return Build(fileName, size, ScanVerdict.Clean, reason, engine: _virus.Name);
+    }
+
+    /// <summary>
+    /// Estágio 2 (conteúdo ativo) em processo. É o que o <c>FileScan.Worker</c> executa; com
+    /// <see cref="IsolationMode.InProcess"/> roda direto no hospedeiro (inseguro para PDF hostil).
+    /// </summary>
+    internal ContentOutcome InspectContentInProcess(string fileName, byte[] bytes, long size, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
         IReadOnlyList<string>? warnings = null;
         bool activeContentDetected = false;
         var incomplete = new List<string>();
@@ -124,7 +186,7 @@ public sealed class FileScanService
             {
                 var msg = "Conteúdo ativo detectado: " + string.Join("; ", findings);
                 if (_opt.OnActiveContent == ActiveContentAction.Reject)
-                    return Build(fileName, size, ScanVerdict.Rejected, msg);
+                    return ContentOutcome.Finished(Build(fileName, size, ScanVerdict.Rejected, msg));
 
                 activeContentDetected = true;
                 warnings = [msg]; // Flag: segue ao AV, mas nunca pode terminar em Clean.
@@ -137,39 +199,9 @@ public sealed class FileScanService
             ? null
             : "inspeção não concluída: " + string.Join("; ", incomplete);
 
+
         budget.ThrowIfCancellationRequested();
-
-        // 3) Antivírus — camada OPCIONAL/plugável. Sem scanner = roda só estrutural + conteúdo ativo;
-        //    a ausência de antivírus não muda o contrato acima (não inspecionado ≠ limpo).
-        if (_virus is null)
-        {
-            if (activeContentDetected)
-                return Build(fileName, size, ScanVerdict.ActiveContentDetected,
-                    "conteúdo ativo detectado sob a política Flag", warnings);
-
-            return Build(fileName, size, fullyInspected ? ScanVerdict.Clean : ScanVerdict.NotInspected,
-                incompleteReason);
-        }
-
-        using var avStream = new MemoryStream(bytes, writable: false);
-        ct.ThrowIfCancellationRequested();
-        var (verdict, reason) = await _virus.ScanAsync(avStream, ct);
-        ct.ThrowIfCancellationRequested();
-
-        // Malicious/Error (ou outro estado não-Clean) do AV prevalece e conserva sua proveniência.
-        if (verdict != ScanVerdict.Clean)
-            return Build(fileName, size, verdict, reason, engine: _virus.Name);
-
-        // AV Clean nunca promove uma decisão estrutural do FileScan a Clean, e a proveniência
-        // permanece "filescan" porque foi esta camada que tomou a decisão final.
-        if (activeContentDetected)
-            return Build(fileName, size, ScanVerdict.ActiveContentDetected,
-                "conteúdo ativo detectado sob a política Flag", warnings);
-
-        if (!fullyInspected)
-            return Build(fileName, size, ScanVerdict.NotInspected, incompleteReason);
-
-        return Build(fileName, size, ScanVerdict.Clean, reason, engine: _virus.Name);
+        return new ContentOutcome(null, activeContentDetected, warnings, fullyInspected, incompleteReason, size);
     }
 
     /// <summary>
@@ -234,7 +266,7 @@ public sealed class FileScanService
             incomplete.Add($"arquivo embutido (profundidade {depth}) — {problem}");
     }
 
-    private static ScanResponse Build(string fileName, long size, ScanVerdict verdict, string? reason,
+    internal static ScanResponse Build(string fileName, long size, ScanVerdict verdict, string? reason,
         IReadOnlyList<string>? warnings = null, string engine = "filescan")
     {
         if (verdict == ScanVerdict.Clean && warnings is { Count: > 0 })

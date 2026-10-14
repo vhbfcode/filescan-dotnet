@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FileScan.Worker — processo filho que executa o estágio de conteúdo do FileScanService (onde o PdfPig abre o PDF).
+    Um estouro de pilha no PdfDocument.Open mata ESTE processo, não o hospedeiro. Protocolo: stdin/stdout
+    (ver FileScan.Core/Isolation/WorkerProtocol.cs). NÃO é um pacote: vai DENTRO do nupkg do FileScan.Core
+    (pasta tools/filescan-worker, copiada como filescan-worker/ para o output e o publish do consumidor).
+
+    Compila os fontes do Core em vez de referenciá-lo: o Core embute o worker no pacote, então um
+    ProjectReference de volta seria um ciclo de build. O worker é, portanto, um assembly próprio e
+    framework-dependent, executado pelo mesmo runtime .NET do hospedeiro (`dotnet FileScan.Worker.dll`).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <UseAppHost>false</UseAppHost>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>FileScan.Worker</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\FileScan.Core\**\*.cs" Exclude="..\FileScan.Core\obj\**;..\FileScan.Core\bin\**;..\FileScan.Core\AssemblyInfo.cs" LinkBase="Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mime-Detective" />
+    <PackageReference Include="PdfPig" />
+  </ItemGroup>
+
+</Project>

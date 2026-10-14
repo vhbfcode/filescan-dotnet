@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Importado automaticamente pelo NuGet para quem referencia o pacote FileScan.Core.
+    Copia o FileScan.Worker (processo filho que isola o PdfDocument.Open) para a pasta filescan-worker/ do output
+    e do publish do consumidor. O FileScan.Core o localiza por caminho relativo ao próprio assembly.
+  -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\tools\filescan-worker\**"
+          Link="filescan-worker\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>

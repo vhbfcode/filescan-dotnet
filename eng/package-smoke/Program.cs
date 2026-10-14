@@ -335,6 +335,42 @@ catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
     cancellationPropagated = true;
 }
 
+
+// --- Isolamento em processo separado (0.4.0): o worker veio DENTRO do pacote ---
+static byte[] PdfWithCyclicDests() => PdfGraph(
+    (1, Encoding.ASCII.GetBytes("<</Type/Catalog/Pages 2 0 R/Names<</Dests 10 0 R>>>>")),
+    (2, Encoding.ASCII.GetBytes("<</Type/Pages/Kids[]/Count 0>>")),
+    (10, Encoding.ASCII.GetBytes("<</Kids[11 0 R]>>")),
+    (11, Encoding.ASCII.GetBytes("<</Kids[10 0 R]>>")));
+
+var defaultIsolation = new FileScannerOptions().Isolation;
+var hostileBeforeClean = await scanner.ScanAsync("hostile.pdf", PdfWithCyclicDests());
+var cleanAfterHostile = await scanner.ScanAsync("clean-after-hostile.pdf", Pdf(string.Empty));
+
+// Timeout de 1 ms em um worker FRIO: o pai mata a árvore do worker, devolve NotInspected e SOBREVIVE;
+// o serviço seguinte (outro pool) escaneia normalmente.
+var timeoutEvents = new List<string>();
+var tinyTimeout = new FileScanService(new FileScannerOptions
+{
+    WorkerTimeout = TimeSpan.FromMilliseconds(1),
+    WorkerRecycleAfterScans = 4242,
+    OnIsolationEvent = timeoutEvents.Add,
+});
+var timedOut = await tinyTimeout.ScanAsync("timeout.pdf", Pdf(string.Empty));
+var afterTimeout = await scanner.ScanAsync("after-timeout.pdf", Pdf(string.Empty));
+
+// Worker ausente: erro de configuração claro, NotInspected e NUNCA fallback silencioso para InProcess.
+var missingEvents = new List<string>();
+var missingWorker = await new FileScanService(new FileScannerOptions
+{
+    WorkerPath = Path.Combine(Path.GetTempPath(), "filescan-smoke-nao-existe", "FileScan.Worker.dll"),
+    OnIsolationEvent = missingEvents.Add,
+}).ScanAsync("missing-worker.pdf", Pdf(string.Empty));
+
+string workerDirectory = Path.Combine(AppContext.BaseDirectory, "filescan-worker");
+bool workerShipped = File.Exists(Path.Combine(workerDirectory, "FileScan.Worker.dll"))
+    && File.Exists(Path.Combine(workerDirectory, "FileScan.Worker.runtimeconfig.json"))
+    && File.Exists(Path.Combine(workerDirectory, "FileScan.Worker.deps.json"));
 if (clean.Verdict != ScanVerdict.Clean || clean.Warnings is { Count: > 0 })
     throw new InvalidOperationException($"Clean contract failed: {clean}");
 if (active.Verdict != ScanVerdict.Rejected)
@@ -347,14 +383,16 @@ if (trailingBytes.Verdict != ScanVerdict.NotInspected)
     throw new InvalidOperationException($"Strict EOF contract failed: {trailingBytes}");
 if (omittedEmbeddedType.Verdict != ScanVerdict.Rejected)
     throw new InvalidOperationException($"FileSpec/EF contract failed: {omittedEmbeddedType}");
-if (unrelatedEf.Verdict != ScanVerdict.Clean)
-    throw new InvalidOperationException($"Unrelated /EF was treated as FileSpec: {unrelatedEf}");
+// 0.3.0 (VOLTA r1, item 3): /EF escalar no catálogo é FileSpec malformado => NotInspected (não mais Clean).
+if (unrelatedEf.Verdict != ScanVerdict.NotInspected)
+    throw new InvalidOperationException($"Scalar /EF outside a FileSpec was not NotInspected: {unrelatedEf}");
 if (malformedEmbeddedScalar.Verdict != ScanVerdict.NotInspected
     || malformedEmbeddedStream.Verdict != ScanVerdict.NotInspected)
     throw new InvalidOperationException(
         $"Malformed /EmbeddedFiles was accepted: scalar={malformedEmbeddedScalar} stream={malformedEmbeddedStream}");
-if (unrelatedFs.Verdict != ScanVerdict.Clean)
-    throw new InvalidOperationException($"Unrelated /FS was treated as FileAttachment: {unrelatedFs}");
+// 0.3.0: o dicionário com /EF é FileSpec independentemente de quem o referencia (/FS custom) => Rejected.
+if (unrelatedFs.Verdict != ScanVerdict.Rejected)
+    throw new InvalidOperationException($"FileSpec reached through a custom /FS key was not rejected: {unrelatedFs}");
 if (malformedNameTreeKey.Verdict != ScanVerdict.NotInspected
     || outOfOrderNameTree.Verdict != ScanVerdict.NotInspected
     || invalidNameTreeLimits.Verdict != ScanVerdict.NotInspected
@@ -398,7 +436,23 @@ if (structuralPdfReason is not null || structuralTxtReason is null)
 if (!cancellationPropagated)
     throw new InvalidOperationException("Cancellation was not propagated before structural inspection.");
 
-Console.WriteLine("PackageReference smoke passed: verdicts, strict EOF, contextual PDF name trees/FileSpec (including root /Limits rejection and literal/hex string-byte ordering), OOXML budget, coherent policies, immutable options and cancellation.");
+if (defaultIsolation != IsolationMode.Worker)
+    throw new InvalidOperationException($"Default isolation must be Worker, got {defaultIsolation}");
+if (!workerShipped)
+    throw new InvalidOperationException($"FileScan.Worker was not copied next to the consumer ({workerDirectory}).");
+if (hostileBeforeClean.Verdict != ScanVerdict.NotInspected)
+    throw new InvalidOperationException($"Hostile PDF (cyclic /Dests) was not NotInspected: {hostileBeforeClean}");
+if (cleanAfterHostile.Verdict != ScanVerdict.Clean)
+    throw new InvalidOperationException($"Scan after the hostile PDF failed (host or worker died?): {cleanAfterHostile}");
+if (timedOut.Verdict != ScanVerdict.NotInspected || timedOut.Reason?.Contains("timeout") != true || timeoutEvents.Count == 0)
+    throw new InvalidOperationException($"Worker timeout did not yield a logged NotInspected: {timedOut} events={timeoutEvents.Count}");
+if (afterTimeout.Verdict != ScanVerdict.Clean)
+    throw new InvalidOperationException($"Scan after a worker timeout failed: {afterTimeout}");
+if (missingWorker.Verdict != ScanVerdict.NotInspected
+    || missingWorker.Reason?.Contains("erro de configuração") != true || missingEvents.Count == 0)
+    throw new InvalidOperationException($"Missing worker was not a clear configuration error (or fell back silently): {missingWorker}");
+
+Console.WriteLine("PackageReference smoke passed: verdicts, strict EOF, contextual PDF name trees/FileSpec (including root /Limits rejection and literal/hex string-byte ordering), OOXML budget, coherent policies, immutable options, cancellation and the packaged out-of-process worker (hostile PDF, timeout kill/restart, missing worker).");
 
 sealed class CleanReasonVirus : IVirusScanner
 {
