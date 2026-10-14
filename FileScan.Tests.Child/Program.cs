@@ -6,8 +6,8 @@ using FileScan.Scanning;
 //  2) (sem args)   ->  WORKER FALSO do protocolo de isolamento: roda o WorkerHost de verdade e, por pedido,
 //                      sabota o comportamento conforme o PREFIXO do nome do arquivo (ver FakeBehavior).
 //                      Os testes apontam FileScannerOptions.WorkerPath para este assembly.
-if (args.Length == 1 && args[0] == "--host")
-    return await HostMode.RunAsync();
+if (args.Length == 1 && args[0] is "--host" or "--host-nowatchdog")
+    return await HostMode.RunAsync(watchdog: args[0] == "--host");
 if (args.Length == 0)
     return await FakeWorker.RunAsync();
 
@@ -81,6 +81,19 @@ static class FakeWorker
                 await Frame(output, WorkerProtocol.Serialize(new WorkerResponse(lie, null)));
                 await Task.Delay(Timeout.Infinite);
             }
+            // Respostas bem formadas que MENTEM contra as invariantes do ContentOutcome (uma regra por prefixo).
+            if (name.StartsWith("badincomplete-", StringComparison.Ordinal)) // integral x motivo de incompletude
+                await Lie(output, new ContentOutcome(null, false, null, true, "motivo apesar de integral", request.ContentLength));
+            if (name.StartsWith("badwarnings-", StringComparison.Ordinal)) // conteúdo ativo x warnings
+                await Lie(output, new ContentOutcome(null, true, null, false, "inspeção não concluída: x", request.ContentLength));
+            if (name.StartsWith("noreason-", StringComparison.Ordinal)) // terminal Rejected sem motivo
+                await Lie(output, ContentOutcome.Finished(FileScanService.Build(name, request.ContentLength, ScanVerdict.Rejected, null)));
+            if (name.StartsWith("ignorefull-", StringComparison.Ordinal)) // coerente, mas integral sob Ignore
+                await Lie(output, new ContentOutcome(null, false, null, true, null, request.ContentLength));
+            if (name.StartsWith("rejectactive-", StringComparison.Ordinal)) // coerente, mas "ativo detectado" sob Reject
+                await Lie(output, new ContentOutcome(null, true, ["x"], false, "inspeção não concluída: x", request.ContentLength));
+            if (name.StartsWith("flagterminal-", StringComparison.Ordinal)) // terminal Rejected sob Flag
+                await Lie(output, ContentOutcome.Finished(FileScanService.Build(name, request.ContentLength, ScanVerdict.Rejected, "motivo")));
             if (name.StartsWith("wrongsize-", StringComparison.Ordinal))
             {
                 var lie = new ContentOutcome(null, false, null, true, null, request.ContentLength + 1);
@@ -88,6 +101,12 @@ static class FakeWorker
                 await Task.Delay(Timeout.Infinite);
             }
         });
+    }
+
+    private static async Task Lie(Stream output, ContentOutcome outcome)
+    {
+        await Frame(output, WorkerProtocol.Serialize(new WorkerResponse(outcome, null)));
+        await Task.Delay(Timeout.Infinite);
     }
 
     private static async Task Raw(Stream output, byte[] bytes)
@@ -108,21 +127,19 @@ static class HostMode
     /// <summary>
     /// Hospedeiro descartável: inicia um scan num worker que TRAVA (hang-), imprime o PID do worker e espera.
     /// O teste mata ESTE processo (sem a árvore) e confere que o worker não sobrevive órfão.
+    /// Com <c>watchdog: false</c> o vigia do PID pai do worker fica desligado: só o Job Object (Windows) o mata.
     /// </summary>
-    public static async Task<int> RunAsync()
+    public static async Task<int> RunAsync(bool watchdog)
     {
-        var service = new FileScanService(new FileScannerOptions
-        {
-            WorkerPath = typeof(HostMode).Assembly.Location,
-            WorkerTimeout = TimeSpan.FromMinutes(10),
-            WorkerRecycleAfterScans = 7_777,
-        });
-        var scan = service.ScanAsync("hang-x.pdf", System.Text.Encoding.ASCII.GetBytes(
-            "%PDF-1.4\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n2 0 obj\n<</Type/Pages/Kids[]/Count 0>>\nendobj\n" +
-            "trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"));
-        for (int i = 0; i < 600 && (service.Isolated?.Pool?.LivePids.Length ?? 0) == 0; i++)
+        var launch = WorkerLocator.Resolve(typeof(HostMode).Assembly.Location, out var error)
+            ?? throw new InvalidOperationException(error);
+        launch = launch with { DisableParentWatchdog = !watchdog };
+        var pool = WorkerPool.GetOrCreate(launch, 1, watchdog ? 7_777 : 7_778, FileScannerOptions.DefaultWorkerMaxMemoryBytes);
+        var request = new WorkerRequest("hang-x.pdf", 1, WorkerContentOptions.From(new FileScannerOptions()));
+        var scan = pool.RunAsync(request, [1], TimeSpan.FromMinutes(10), CancellationToken.None);
+        for (int i = 0; i < 600 && pool.LivePids.Length == 0; i++)
             await Task.Delay(50);
-        Console.WriteLine("PID " + service.Isolated!.Pool!.LivePids[0]);
+        Console.WriteLine("PID " + pool.LivePids[0]);
         Console.Out.Flush();
         await scan;
         return 0;

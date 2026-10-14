@@ -59,7 +59,7 @@ public sealed class IsolatedFileScanService
         if (launch is null)
         {
             Log($"erro de configuração do isolamento: {configurationError}");
-            return ContentOutcome.Failed($"erro de configuração do isolamento (FileScan.Worker): {configurationError}", size);
+            return ContentOutcome.Failed("erro de configuração do isolamento (FileScan.Worker indisponível; os detalhes vão para OnIsolationEvent)", size);
         }
 
         var pool = Pool = WorkerPool.GetOrCreate(launch, _opt.WorkerPoolSize, _opt.WorkerRecycleAfterScans,
@@ -74,7 +74,7 @@ public sealed class IsolatedFileScanService
         }
 
         var outcome = result.Response!.Outcome;
-        var problem = outcome is null ? "resposta do worker sem resultado" : outcome.ValidationProblem(size);
+        var problem = outcome is null ? "resposta do worker sem resultado" : outcome.ValidationProblem(size, _opt.OnActiveContent);
         if (problem is not null)
         {
             Log($"resposta inválida do worker ({fileName}): {problem}");
@@ -105,6 +105,11 @@ public sealed class IsolatedFileScanService
         catch (Exception) { /* log do chamador nunca quebra o scan */ }
     }
 
+
+    // Controle (\n \r ...), separadores de linha/parágrafo (U+2028/2029) e formatação (U+202E bidi, U+200B...).
+    private static bool IsUnsafeForLog(char c) =>
+        char.IsControl(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.LineSeparator
+            or System.Globalization.UnicodeCategory.ParagraphSeparator or System.Globalization.UnicodeCategory.Format;
     /// <summary>
     /// A mensagem carrega o nome do arquivo e o stderr do worker, ambos derivados de entrada hostil: troca
     /// caracteres de controle (quebras de linha forjariam entradas de log) e limita o tamanho.
@@ -116,7 +121,7 @@ public sealed class IsolatedFileScanService
         foreach (char c in message)
         {
             if (builder.Length >= Max) { builder.Append("..."); break; }
-            builder.Append(char.IsControl(c) ? ' ' : c);
+            builder.Append(IsUnsafeForLog(c) ? ' ' : c);
         }
 
         return builder.ToString();

@@ -65,6 +65,31 @@ internal sealed class WindowsJobObject : IDisposable
         }
     }
 
+    /// <summary>Lê de volta, do SO, os limites realmente aplicados ao job (prova de que valem).</summary>
+    public JobLimits QueryLimits()
+    {
+        int size = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
+        nint buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (!QueryInformationJobObject(_handle, JobObjectExtendedLimitInformation, buffer, (uint)size, out _))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryInformationJobObject");
+            var info = Marshal.PtrToStructure<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>(buffer);
+            return new JobLimits(info.BasicLimitInformation.LimitFlags, info.BasicLimitInformation.ActiveProcessLimit,
+                (ulong)info.ProcessMemoryLimit);
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    public const uint KillOnJobCloseFlag = LimitKillOnJobClose;
+    public const uint ActiveProcessFlag = LimitActiveProcess;
+    public const uint ProcessMemoryFlag = LimitProcessMemory;
+    public const uint DieOnUnhandledExceptionFlag = LimitDieOnUnhandledException;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryInformationJobObject(nint job, int infoClass, nint info, uint size, out uint returned);
+
     /// <summary>Fechar o handle mata o worker (KILL_ON_JOB_CLOSE).</summary>
     public void Dispose()
     {
@@ -123,3 +148,6 @@ internal sealed class WindowsJobObject : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(nint handle);
 }
+
+/// <summary>Limites de um Job Object, lidos do SO.</summary>
+internal sealed record JobLimits(uint LimitFlags, uint ActiveProcessLimit, ulong ProcessMemoryLimit);

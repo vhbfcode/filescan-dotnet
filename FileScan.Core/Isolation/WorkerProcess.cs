@@ -5,7 +5,12 @@ using System.Text;
 namespace FileScan.Scanning;
 
 /// <summary>Falha do worker (crash, resposta inválida, fluxo truncado, não iniciou). Nunca vira Clean.</summary>
-internal sealed class WorkerFailureException(string message, Exception? inner = null) : Exception(message, inner);
+internal sealed class WorkerFailureException(string message, Exception? inner = null, string? category = null)
+    : Exception(message, inner)
+{
+    /// <summary>Descrição curta e SEM caminhos/detalhes do servidor, segura para o Reason devolvido ao cliente.</summary>
+    public string Category { get; } = category ?? "falha de inicialização";
+}
 
 /// <summary>
 /// UM processo worker. Só o PID que ESTE objeto criou é morto (<see cref="Kill"/>), junto da sua árvore.
@@ -24,6 +29,12 @@ internal sealed class WorkerProcess : IDisposable
 
     public int Pid { get; }
     public int ScansCompleted { get; private set; }
+
+    /// <summary>true depois de <see cref="Kill"/>: um worker morto nunca volta ao pool.</summary>
+    public bool IsKilled => Volatile.Read(ref _killed) != 0;
+
+    /// <summary>Limites que o SO aplica a este worker (só Windows; null nos demais).</summary>
+    public JobLimits? QueryJobLimits() => (_job as WindowsJobObject)?.QueryLimits();
     public bool HasExited
     {
         get
@@ -65,7 +76,8 @@ internal sealed class WorkerProcess : IDisposable
         info.Environment["DOTNET_gcConcurrent"] = "0";
         info.Environment["DOTNET_TieredPGO"] = "0";
         info.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
-        info.Environment[WorkerHost.ParentPidVariable] = Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+        if (!launch.DisableParentWatchdog) // só os testes desligam o vigia, para provar o Job Object sozinho
+            info.Environment[WorkerHost.ParentPidVariable] = Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
         if (maxMemoryBytes > 0)
         {
             // Teto do heap do GC: vale em QUALQUER SO (o único limite de memória do Linux sem privilégio).
@@ -79,7 +91,7 @@ internal sealed class WorkerProcess : IDisposable
         }
         catch (Exception ex) when (ex is not WorkerFailureException)
         {
-            throw new WorkerFailureException($"não foi possível iniciar o worker ('{launch.HostPath}'): {ex.Message}", ex);
+            throw new WorkerFailureException($"não foi possível iniciar o worker ('{launch.HostPath}'): {ex.Message}", ex, "processo não iniciado");
         }
 
         IDisposable? job = null;
@@ -96,7 +108,7 @@ internal sealed class WorkerProcess : IDisposable
             catch (Exception ex)
             {
                 // Limite do SO que não pôde ser aplicado NUNCA é ignorado em silêncio: o worker não roda sem ele.
-                throw new WorkerFailureException($"não foi possível aplicar os limites do SO ao worker: {ex.Message}", ex);
+                throw new WorkerFailureException($"não foi possível aplicar os limites do SO ao worker: {ex.Message}", ex, "limites do SO não puderam ser aplicados");
             }
 
             worker = new WorkerProcess(process, job);
@@ -111,9 +123,9 @@ internal sealed class WorkerProcess : IDisposable
                 var frame = await WorkerProtocol.ReadFrameAsync(worker._stdout, WorkerProtocol.MaxHeaderBytes, linked.Token)
                     ?? throw new WorkerFailureException("o worker encerrou antes do handshake" + worker.ExitSuffix());
                 var hello = WorkerProtocol.Deserialize<WorkerHello>(frame);
-                if (hello is null || hello.Protocol != WorkerProtocol.Version)
+                if (hello is null || hello.Protocol != WorkerProtocol.Version || hello.Pid != process.Id)
                     throw new WorkerFailureException(
-                        $"handshake inválido do worker (protocolo {hello?.Protocol.ToString() ?? "?"}, esperado {WorkerProtocol.Version})");
+                        $"handshake inválido do worker (protocolo {hello?.Protocol.ToString() ?? "?"}, esperado {WorkerProtocol.Version}; pid {hello?.Pid.ToString() ?? "?"}, processo iniciado {process.Id} - o host dotnet pode ser um shim que cria o worker como neto, fora do Job Object; aponte DOTNET_HOST_PATH para o dotnet real)", null, "handshake inválido");
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {

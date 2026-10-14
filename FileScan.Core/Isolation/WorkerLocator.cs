@@ -5,7 +5,8 @@ namespace FileScan.Scanning;
 
 /// <summary>Como iniciar o worker: o host <c>dotnet</c> + o <c>FileScan.Worker.dll</c>.</summary>
 internal sealed record WorkerLaunch(string HostPath, string WorkerDll,
-    Func<System.Diagnostics.Process, long, IDisposable?>? LimitApplier = null)
+    Func<System.Diagnostics.Process, long, IDisposable?>? LimitApplier = null,
+    bool DisableParentWatchdog = false)
 {
     public string Key => HostPath + "|" + WorkerDll;
 }

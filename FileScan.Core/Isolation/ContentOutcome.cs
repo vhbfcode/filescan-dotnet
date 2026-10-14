@@ -23,13 +23,18 @@ internal sealed record ContentOutcome(
         new(null, false, null, false, "inspeção isolada não concluída: " + reason, size);
 
     /// <summary>
-    /// Confere as invariantes que um outcome HONESTO sempre cumpre. O worker é código nosso, mas a
-    /// resposta é entrada de outro processo: o que não fechar vira falha de isolamento, não decisão.
+    /// Confere as invariantes que um outcome HONESTO sempre cumpre, inclusive as LIGADAS À POLÍTICA: o worker é
+    /// código nosso, mas a resposta é entrada de outro processo; o que não fechar vira falha de isolamento,
+    /// não decisão. Sob <see cref="ActiveContentAction.Reject"/> o estágio nunca devolve "conteúdo ativo
+    /// detectado" (devolve Rejected terminal); sob <see cref="ActiveContentAction.Ignore"/> a inspeção é pulada,
+    /// então jamais é integral e nada é detectado; terminal Rejected só existe sob Reject.
     /// </summary>
-    public string? ValidationProblem(long expectedSize)
+    public string? ValidationProblem(long expectedSize, ActiveContentAction policy)
     {
         if (Terminal is { } terminal)
         {
+            if (policy != ActiveContentAction.Reject)
+                return $"veredito terminal do worker incompatível com a política {policy}";
             if (terminal.Verdict != ScanVerdict.Rejected)
                 return $"veredito terminal inesperado do worker ({terminal.Verdict})";
             if (string.IsNullOrEmpty(terminal.Reason))
@@ -43,6 +48,10 @@ internal sealed record ContentOutcome(
             return "resposta do worker incoerente (inspeção integral x motivo de incompletude)";
         if (ActiveContentDetected != (Warnings is { Count: > 0 }))
             return "resposta do worker incoerente (conteúdo ativo x warnings)";
+        if (policy == ActiveContentAction.Reject && ActiveContentDetected)
+            return "resposta do worker incompatível com a política Reject (conteúdo ativo sem rejeição)";
+        if (policy == ActiveContentAction.Ignore && (FullyInspected || ActiveContentDetected))
+            return "resposta do worker incompatível com a política Ignore (inspeção pulada não pode ser integral)";
         return null;
     }
 }

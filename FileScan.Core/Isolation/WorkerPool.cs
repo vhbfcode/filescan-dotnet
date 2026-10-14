@@ -59,6 +59,9 @@ internal sealed class WorkerPool
     /// <summary>PIDs de todos os workers vivos do pool (ociosos ou em scan).</summary>
     public int[] LivePids => [.. _live.Keys];
 
+    /// <summary>Workers vivos (ociosos ou em scan), para inspeção nos testes.</summary>
+    public WorkerProcess[] LiveWorkers => [.. _live.Values];
+
     /// <exception cref="OperationCanceledException">O <paramref name="ct"/> do chamador cancelou.</exception>
     public async Task<PoolResult> RunAsync(WorkerRequest request, byte[] content, TimeSpan timeout, CancellationToken ct)
     {
@@ -79,7 +82,7 @@ internal sealed class WorkerPool
                 }
                 catch (WorkerFailureException ex)
                 {
-                    return new PoolResult(null, $"o worker não pôde ser iniciado: {ex.Message}", ex.ToString());
+                    return new PoolResult(null, $"o worker não pôde ser iniciado: {ex.Category}", ex.ToString());
                 }
             }
 
@@ -115,7 +118,7 @@ internal sealed class WorkerPool
             // Resposta bem formada, mas incoerente/mentirosa: o worker não é confiável => morre (não volta ao pool).
             var problem = response.Outcome is null
                 ? "resposta do worker sem resultado"
-                : response.Outcome.ValidationProblem(content.LongLength);
+                : response.Outcome.ValidationProblem(content.LongLength, request.Options.OnActiveContent);
             if (problem is not null)
             {
                 return new PoolResult(null, $"resposta inválida do worker: {problem} (worker morto e reiniciado)",
@@ -130,7 +133,7 @@ internal sealed class WorkerPool
         {
             if (worker is not null)
             {
-                if (keep && !worker.HasExited) _idle.Push(worker);
+                if (keep && !worker.IsKilled && !worker.HasExited) _idle.Push(worker);
                 else if (retire)
                 {
                     Interlocked.Increment(ref _retired);

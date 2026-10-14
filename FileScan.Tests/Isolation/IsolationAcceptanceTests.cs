@@ -64,6 +64,10 @@ public class IsolationAcceptanceTests
     [InlineData("info_autoalias")]
     public async Task AttackPastTheGuard_OverflowsTheStack_NotInspected_HostSurvives_WorkerRestarts(string attack)
     {
+        // 20 mil níveis estouram a pilha de 1 MB do Windows, mas NÃO a de 8 MB do Linux (o PdfPig abre o arquivo e
+        // o resultado é Clean). Só 200 mil níveis estouram nos dois; este caso é exclusivo do Windows.
+        if (attack == "paginas20000" && !OperatingSystem.IsWindows()) return;
+
         // "noguard-" liga o ponto interno que DESLIGA a guarda pré-Open no worker falso: o ataque chega ao
         // PdfDocument.Open do PdfPig 0.1.16 e estoura a pilha DO WORKER (exit code 0xC00000FD no Windows).
         var events = new List<string>();
@@ -85,6 +89,8 @@ public class IsolationAcceptanceTests
 
         var response = await Scan(service, "noguard-" + attack + ".pdf", bytes);
 
+        // PRIMEIRO a prova de que o worker realmente caiu: sem isso um "Clean" por pilha grande demais é confundido com falha de veredito.
+        Assert.True(pool.KilledCount == 1, $"o ataque '{attack}' NÃO derrubou o worker (KilledCount={pool.KilledCount}; veredito {response.Verdict}): o ataque não estoura a pilha neste SO");
         AssertVerdict(ScanVerdict.NotInspected, response, "ataque que passa pela guarda");
         Assert.Contains("inspeção isolada não concluída", response.Reason);
         Assert.Equal(1, pool.KilledCount);
@@ -286,7 +292,8 @@ public class IsolationAcceptanceTests
 
         AssertVerdict(ScanVerdict.NotInspected, response, "worker ausente");
         Assert.Contains("erro de configuração", response.Reason);
-        Assert.Contains("FileScan.Worker não encontrado", response.Reason);
+        Assert.DoesNotContain("filescan-nao-existe", response.Reason); // o Reason vai ao cliente da API: sem caminhos do servidor
+        Assert.Contains(events, e => e.Contains("FileScan.Worker não encontrado") && e.Contains("filescan-nao-existe"));
         Assert.Contains(events, e => e.Contains("erro de configuração do isolamento"));
         Assert.Null(service.Isolated!.Pool); // nem tentou iniciar processo
     }
@@ -428,18 +435,22 @@ public class IsolationAcceptanceTests
         Assert.Equal(0, drain.Length); // nenhum byte além dos quadros do protocolo
     }
 
-    [Fact]
-    public async Task WorkerDoesNotSurviveItsHost()
+    [Theory]
+    [InlineData("--host")]            // vigia do PID pai + Job Object (Windows)
+    [InlineData("--host-nowatchdog")] // SÓ o Job Object: prova o KILL_ON_JOB_CLOSE (Windows); nos demais SO não há garantia
+    public async Task WorkerDoesNotSurviveItsHost(string mode)
     {
+        if (mode == "--host-nowatchdog" && !OperatingSystem.IsWindows()) return; // sem Job Object nem vigia: órfão possível (documentado)
+
         // O hospedeiro descartável inicia um scan que TRAVA no worker; matamos o hospedeiro (sem a árvore) e o
-        // worker, que nunca lê o stdin, tem de morrer sozinho (Job Object no Windows; vigia do PID pai nos demais).
+        // worker, que nunca lê o stdin, tem de morrer sozinho.
         var info = new ProcessStartInfo("dotnet")
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
         };
         info.ArgumentList.Add(FakeWorkerPath());
-        info.ArgumentList.Add("--host");
+        info.ArgumentList.Add(mode);
         using var host = Process.Start(info)!;
         int workerPid = 0;
         try
