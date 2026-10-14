@@ -1,7 +1,7 @@
 ---
 id: FS-040
 titulo: Isolar o PdfDocument.Open do PdfPig em processo worker (FileScan.Core 0.4.0)
-status: Em revisão (2ª linha; VOLTA r1 tratada)
+status: Concluído (2ª linha APROVADO r2) — aguardando publicação pelo dono
 plano: PLANO-026 do Fenix (decisão D4), ticket de adoção T-343 do Fenix
 branch: feature/open-isolado (da main c98e989)
 ---
@@ -31,7 +31,7 @@ robusta é rodar o `Open` em um processo filho: crash/timeout/lixo do filho ⇒ 
   entre scans, paridade) + sabotagens com dente, revertidas.
 - [x] `<Version>0.4.0</Version>`; CHANGELOG, README (en/pt-BR), SECURITY honestos; `PROJECT_NOTES.local.md`.
 - [x] Suíte completa verde no Windows **e no Linux** (`mcr.microsoft.com/dotnet/sdk:10.0`).
-- [ ] Revisão adversarial com 2ª linha APROVADA (pendente; ver abaixo).
+- [x] Revisão adversarial com 2ª linha APROVADA (rodada 2, 2026-10-14; suíte 348/348 Windows e Linux).
 
 ## Resultado da implementação
 
@@ -84,4 +84,10 @@ Não executado — requer macOS: nenhum teste em macOS. Os 5 casos "somente Wind
   PID do handshake restaurada (shim ⇒ falha fechada; **sem teste**: não há como forjar o PID do hello sem
   um host shim real); 10) canário de deriva entre os dois `.csproj`.
 - **Lastro dos checkboxes observáveis:** ver a tabela de Lastro acima.
-- **Veredito final da 2ª linha:** {{APROVADO — rodada N (revisor, modelo, AAAA-MM-DD) | dispensada por <dono|orquestrador>: <motivo>}}
+- **Veredito final da 2ª linha:** APROVADO — rodada 2 (revisor-2a-linha, Opus 5.5, 2026-10-14)
+
+**Resíduos MENORES da r2 (registrados; não bloqueiam):**
+- **N1.** O teste do `Reason` é tautológico na falha de partida: com `{ex.Message}` restaurado em `WorkerPool.cs:85`, continua verde. A melhoria é exercitar `WorkerLaunch` com um `HostPath` inexistente num diretório "segredo" e afirmar sobre o `Failure`.
+- **N2.** `KilledWorker_NeverGoesBackToTheIdlePool` só testa a propriedade `IsKilled`, não o comportamento, que hoje é coberto pelo `HasExited` de `TakeIdleLive`. Renomear o teste.
+- **N3.** O `WorkerProjectDriftTests` compara o `Include` literal: um `EmbeddedResource` replicado corretamente no Worker (caminho relativo diferente) fica vermelho, um falso positivo. A correção é normalizar os caminhos completos. "Não há como forjar o PID" exagera: um modo shim no `Tests.Child` testaria a checagem.
+- **N4.** Corrigido no fechamento: os READMEs (en/pt-BR) agora distinguem o erro de configuração (worker ou host ausente) de "o worker não pôde ser iniciado".

@@ -128,8 +128,9 @@ var scanner = new FileScanService(new FileScannerOptions
 - **Requisitos:** o hospedeiro precisa poder iniciar um processo filho e ter o runtime .NET 10 instalado. No
   **Azure App Service** use plano dedicado (**B1+**) ou contêiner Linux — Free/Shared restringem processos
   filhos. Valide no ambiente alvo antes de adotar.
-- **Sem fallback silencioso:** worker ausente ou impossível de iniciar ⇒ o scan dá `NotInspected` com erro de
-  configuração claro (e o `OnIsolationEvent` recebe os detalhes). `IsolationMode.InProcess` é **inseguro para PDF
+- **Sem fallback silencioso:** worker ausente ou impossível de iniciar ⇒ o scan dá `NotInspected`: worker ou host
+  ausente gera erro de configuração claro; worker que não inicia gera "o worker não pôde ser iniciado:
+  <categoria>" (e o `OnIsolationEvent` recebe os detalhes). `IsolationMode.InProcess` é **inseguro para PDF
   hostil** — só para testes e ambientes que não podem criar processos.
 - **Custo:** ~0,4 ms de IPC por scan com workers quentes; o 1º scan paga a partida do processo (0,3–1,7 s);
   ~70 MB de working set por worker; o arquivo fica duas vezes em memória durante o scan.
