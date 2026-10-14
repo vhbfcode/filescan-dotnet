@@ -111,7 +111,7 @@ internal sealed class WorkerProcess : IDisposable
                 var frame = await WorkerProtocol.ReadFrameAsync(worker._stdout, WorkerProtocol.MaxHeaderBytes, linked.Token)
                     ?? throw new WorkerFailureException("o worker encerrou antes do handshake" + worker.ExitSuffix());
                 var hello = WorkerProtocol.Deserialize<WorkerHello>(frame);
-                if (hello is null || hello.Protocol != WorkerProtocol.Version || hello.Pid != process.Id)
+                if (hello is null || hello.Protocol != WorkerProtocol.Version)
                     throw new WorkerFailureException(
                         $"handshake inválido do worker (protocolo {hello?.Protocol.ToString() ?? "?"}, esperado {WorkerProtocol.Version})");
             }

@@ -56,6 +56,8 @@
     <PropertyGroup>
       <_WorkerDir>$([System.IO.Path]::GetDirectoryName('$(_WorkerDll)'))$([System.IO.Path]::DirectorySeparatorChar)</_WorkerDir>
     </PropertyGroup>
+    <Error Condition="!Exists('$(_WorkerDir)FileScan.Worker.dll')"
+           Text="FileScan.Worker.dll não foi encontrado em '$(_WorkerDir)': o pacote sairia SEM o worker (e o consumidor ficaria sem isolamento). Compile o FileScan.Worker antes de empacotar (não use pack --no-build sem um build prévio)." />
     <ItemGroup>
       <_WorkerFile Include="$(_WorkerDir)**" Exclude="$(_WorkerDir)**\*.pdb;$(_WorkerDir)**\*.xml" />
       <None Include="@(_WorkerFile)"
