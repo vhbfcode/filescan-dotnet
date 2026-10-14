@@ -28,9 +28,10 @@ injeção multi-formato — as alternativas são CDR comercial ou ferramentas de
   faz deploy como qualquer app web comum.
 - **Validado em documentos reais — zero falso-positivo** — dezenas de arquivos reais (PDFs de
   seguro, documentos Office, imagens) passam limpos após ajuste de falso-positivo.
+- **Parsing de PDF isolado contra crash (0.4.0)** — `PdfDocument.Open` roda em um processo worker por padrão; estouro de pilha, OOM ou travamento do parser vira `NotInspected` e o hospedeiro sobrevive.
 - **Pensado em segurança** — fail-closed, rate limiting por cliente ligado por padrão, Swagger só em
   Development, auth opcional por API key (constant-time), limites de tamanho/descompressão configuráveis.
-- **145 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
+- **334 testes automatizados** (xUnit) com entradas geradas em código — `dotnet test`, sem Docker.
 
 > ⚠️ **Aviso / Escopo:** o FileScan faz **detecção heurística** de conteúdo malicioso/injeção.
 > **Não é** um produto de CDR certificado, **não substitui** um antivírus completo nem uma solução
@@ -105,9 +106,42 @@ consumidores no mesmo processo podem usar limites diferentes, e alterar o `FileS
 original depois do construtor não muda um scanner existente. Um motor de antivírus pode ser plugado
 via a interface opcional `IVirusScanner` — é exatamente assim que a API deste repo pluga o ClamAV.
 
+### Isolamento em processo (`FileScannerOptions.Isolation`, padrão `Worker`)
+
+O PdfPig 0.1.16 pode estourar a pilha dentro do `PdfDocument.Open`, e um estouro de pilha do .NET não é
+capturável — derruba o hospedeiro. Desde a **0.4.0** o estágio de conteúdo (o que abre o PDF) roda por padrão
+em um **processo filho** (`FileScan.Worker`, dentro do pacote NuGet e copiado para `filescan-worker/` ao lado
+dos seus binários, no build e no `dotnet publish`). Crash, OOM, timeout (`WorkerTimeout`, padrão 20 s), resposta
+inválida ou fluxo truncado fazem o pai matar a árvore de processos do worker, iniciar outro e devolver
+**`NotInspected`** — nunca `Clean` — com o hospedeiro seguindo vivo.
+
+```csharp
+var scanner = new FileScanService(new FileScannerOptions
+{
+    // Isolation = IsolationMode.Worker,        // padrão
+    WorkerTimeout = TimeSpan.FromSeconds(20),   // por scan
+    WorkerPoolSize = 2,                         // workers quentes (padrão: metade dos núcleos, 1-4)
+    OnIsolationEvent = message => logger.LogWarning("{Isolation}", message),
+});
+```
+
+- **Requisitos:** o hospedeiro precisa poder iniciar um processo filho e ter o runtime .NET 10 instalado. No
+  **Azure App Service** use plano dedicado (**B1+**) ou contêiner Linux — Free/Shared restringem processos
+  filhos. Valide no ambiente alvo antes de adotar.
+- **Sem fallback silencioso:** worker ausente ou impossível de iniciar ⇒ o scan dá `NotInspected` com erro de
+  configuração claro (e o `OnIsolationEvent` recebe os detalhes). `IsolationMode.InProcess` é **inseguro para PDF
+  hostil** — só para testes e ambientes que não podem criar processos.
+- **Custo:** ~0,4 ms de IPC por scan com workers quentes; o 1º scan paga a partida do processo (0,3–1,7 s);
+  ~70 MB de working set por worker; o arquivo fica duas vezes em memória durante o scan.
+- **Limites no worker:** Windows — Job Object (`KILL_ON_JOB_CLOSE`, um processo, teto de memória). Linux/macOS —
+  só o teto do heap do GC e um vigia do processo pai (**melhor esforço**; use limites do contêiner se precisar
+  de limites rígidos). O worker tem os privilégios do hospedeiro: protege a disponibilidade, **não** é sandbox.
+  Ver [SECURITY.md](SECURITY.md).
+- O antivírus (`IVirusScanner`) e a validação estrutural continuam no processo hospedeiro.
+
 Para gerar o pacote NuGet localmente: `dotnet pack FileScan.Core -c Release -o artifacts`.
 
-Releases são publicados via tag (`git tag v0.3.0 && git push origin v0.3.0`) no
+Releases são publicados via tag (`git tag v0.4.0 && git push origin v0.4.0`) no
 **[nuget.org](https://www.nuget.org/packages/FileScan.Core)** (via Trusted Publishing / OIDC —
 sem chave de longa duração) e no **GitHub Packages**. Antes do hash, os timestamps ZIP do pacote
 são normalizados para o timestamp do commit; assim, o retry da mesma tag recria o mesmo artefato,
@@ -207,6 +241,8 @@ A documentação interativa (Swagger UI) fica em `/swagger`.
 | `ClamAv:Enabled` | `true` | Liga a camada de antivírus. `false` = só estrutural + conteúdo ativo (**sem container/daemon**) |
 | `ClamAv:Host` / `ClamAv:Port` | `localhost` / `3310` | Endereço do daemon `clamd` (quando habilitado) |
 | `ActiveContent:OnDetected` | `Reject` | `Reject`; `Flag` → `ActiveContentDetected` + warnings; `Ignore` → `NotInspected` |
+| `Isolation` | `Worker` | `Worker` = PDF aberto em processo filho (`FileScan.Worker`, incluído no publish); `InProcess` = **inseguro para PDF hostil** (ver *Isolamento em processo*) |
+| `WorkerTimeoutSeconds` / `WorkerPoolSize` | `20` / metade dos núcleos (1–4) | Timeout por scan do worker (estouro ⇒ worker morto + `NotInspected`) e quantidade de workers quentes |
 | `RateLimit:Enabled` / `:PermitLimit` / `:WindowSeconds` | `true` / `60` / `60` | Rate limit do `/scan` por cliente (API key, ou IP): N requisições por janela → `429` |
 
 Qualquer chave pode ser sobrescrita por variável de ambiente, ex.: `FileScan__ClamAv__Enabled=false`.

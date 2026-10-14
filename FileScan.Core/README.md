@@ -30,6 +30,14 @@ Options are copied into a validated **per-instance snapshot** (no global or call
 two consumers can use different limits, and later mutations of the original options object cannot
 alter an existing scanner.
 
+### Process isolation (0.4.0)
+
+By default the PDF is opened in a separate worker process (`FileScannerOptions.Isolation = Worker`; the worker ships
+inside this package and is copied next to your binaries, also on `dotnet publish`). A parser crash, OOM or timeout
+returns `NotInspected` — never `Clean` — and the host keeps running. The host must be able to start child processes
+and have the .NET 10 runtime (Azure App Service: B1+ or a Linux container). `Isolation = InProcess` is unsafe for
+hostile PDFs. See the repository's README and `SECURITY.md` for the cost and what stays best effort.
+
 ## What it checks
 
 1. **Structural** (cheap, synchronous): size, extension allowlist, and **real content type via

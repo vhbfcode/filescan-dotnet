@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.4.0
+
+> **`PdfDocument.Open` now runs in a separate worker process, by default.** The PdfPig 0.1.16 parser recurses
+> without limit and a .NET stack overflow cannot be caught, so any in-process guard (including the 0.3.0 one,
+> which is best effort) can be bypassed by a file nobody has modelled yet. In 0.4.0 the content stage — the part
+> that opens the PDF — runs in `FileScan.Worker`, a child process. If it crashes (stack overflow, OOM), exceeds
+> the timeout, answers garbage or dies mid-message, the parent kills the worker's process tree, starts a new one
+> and returns `NotInspected` — **never `Clean`** — and the host process keeps running. The 0.3.0 pre-Open guard
+> stays as the first layer *inside* the worker (cheap, tested); it is no longer the only line of defence.
+
+**What changes for you**
+
+- `FileScannerOptions.Isolation` is new and defaults to **`Worker`**. Existing code (`new FileScanService(options)`)
+  is isolated with no change, but the host must be able to **start a child process** and have the **.NET 10
+  runtime** installed (the worker is framework-dependent and started as `dotnet FileScan.Worker.dll`).
+  **Azure App Service:** use a dedicated plan (B1 or higher) or a Linux container; the Free/Shared tiers restrict
+  child processes. Test it in the target environment before adopting. Self-contained / single-file hosts without
+  a `dotnet` runtime cannot start the worker (see "No silent fallback").
+- `Isolation = InProcess` keeps the 0.3.0 behaviour. It is **unsafe for hostile PDFs** and exists for tests and
+  for environments that cannot start processes and accept the risk.
+- **No silent fallback.** Worker missing, incomplete, of another version, not startable (no `dotnet` host, OS
+  limits not applicable) → that scan is `NotInspected` with a `... erro de configuração ...` reason, the
+  `OnIsolationEvent` callback receives the details, and the service keeps trying on the next scan (fix the
+  packaging and it recovers without a restart). It never runs the scan in-process on its own.
+- New options (all validated): `Isolation`, `WorkerTimeout` (default 20 s), `WorkerPoolSize` (default
+  half the cores, 1–4), `WorkerRecycleAfterScans` (default 100), `WorkerMaxMemoryBytes` (default 2 GiB, 0 = none),
+  `WorkerPath` (explicit `FileScan.Worker.dll`), `OnIsolationEvent` (your logger; file names and worker stderr are
+  sanitized against log forging). The API exposes `FileScan:Isolation`, `FileScan:WorkerTimeoutSeconds` and
+  `FileScan:WorkerPoolSize`, and logs isolation events under the `FileScan.Isolation` category.
+- New public type `IsolatedFileScanService` (always isolated, no antivirus); `FileScanService` uses the same pool.
+
+**How it works**
+
+- Protocol over stdin/stdout, one message per scan: `[int32 length][JSON header][raw bytes]` →
+  `[int32 length][JSON response]`. The worker's stdout carries nothing but the protocol (its `Console.Out` is
+  redirected to stderr, which the parent drains for diagnostics).
+- The worker runs the *content stage* only (active-content inspection, with the pre-Open guard first). Structural
+  validation (size, extension, real type) and the optional antivirus (`IVirusScanner`) stay in the host — the AV
+  prevails over an isolation failure exactly as it prevailed over `NotInspected` before.
+- Pool of warm workers, shared by every `FileScanService` with the same worker settings in the process. A worker
+  that fails is killed (whole tree, only the PID the library created) and **replaced on the next scan**; after
+  `WorkerRecycleAfterScans` scans a worker is retired preventively. Caller cancellation is propagated (the worker
+  is killed, `OperationCanceledException` is thrown). A response that is well-formed but incoherent (size
+  mismatch, a terminal verdict other than `Rejected`) counts as a failure and kills the worker: only the host
+  turns a validated result into `Clean`.
+- The worker exits when its stdin closes and when its parent dies (watchdog on the parent PID), so it is never
+  left orphaned.
+- Packaging: the worker is inside the `.nupkg` (`tools/filescan-worker/`, plus `build/FileScan.Core.targets`) and is
+  copied to `filescan-worker/` next to your assembly on build **and on `dotnet publish`**; the Core locates it
+  relative to its own assembly. The package grows by ~2 MB. `eng/package-smoke` now proves it end to end against a
+  locally packed `.nupkg`: hostile PDF → `NotInspected` and the next scan works, a worker timeout kills and
+  restarts, a missing worker is a clear configuration error, and the same holds when run from `dotnet publish`.
+
+**OS limits on the worker — what is enforced and what is best effort**
+
+- **Windows:** a Job Object per worker with `KILL_ON_JOB_CLOSE`, a 1-process limit (the worker cannot spawn
+  children), a per-process committed-memory cap (`WorkerMaxMemoryBytes` + 128 MiB) and no crash dialog. If the job
+  cannot be applied, the worker is not used and the scan is `NotInspected`.
+- **Linux / macOS:** only the GC heap hard limit (`DOTNET_GCHeapHardLimit`) and the parent watchdog. There is no
+  cgroup/rlimit setup without privileges, so native memory and CPU are **not** capped beyond the timeout. If you
+  need hard limits, run the host in a container with memory/CPU limits.
+- On every OS: the timeout (20 s) is the only CPU bound. A hostile upload can burn a worker for up to the timeout
+  and a crash costs about a second to restart, so a sustained flood of hostile files reduces throughput — keep the
+  rate limit. The worker has the **same privileges** as the host: the isolation protects *availability* (the host
+  survives), it is not a sandbox against code execution or file/network access.
+- Cost: with warm workers a scan adds about 0.4 ms of IPC (measured: 0.7 → 1.1 ms for a small PDF); the first scan
+  pays the process start (~0.3–1.7 s on a loaded dev machine). Each worker holds ~70 MB of working set, and a
+  scanned file exists twice in memory during the scan.
+
+**Other**
+
+- `StructuralValidator` injected into `FileScanService` (and its `IContentInspector`) is honoured for the top-level
+  structural step in the host; the worker uses the default definitions for embedded-file type checks.
+- `eng/package-smoke` had two assertions that were stale since 0.3.0 (a scalar `/EF` and a `/FS` custom key
+  pointing at an `/EF` dictionary are `NotInspected`/`Rejected` since 0.3.0); they were fixed.
+
+
 ## 0.3.0
 
 > **SECURITY — 0.2.0 (and earlier) is vulnerable to a denial of service of the host process.** A crafted PDF

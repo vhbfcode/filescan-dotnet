@@ -13,6 +13,12 @@ namespace FileScan.Scanning;
 /// inspeção nunca vira aceitação. ⚠️ Essa garantia de integralidade cobre <b>PDF e OOXML</b>;
 /// para OLE2/imagem/CSV/texto a inspeção é heurística best-effort (ver
 /// <see cref="ScanVerdict.Clean"/>).
+///
+/// Isolamento (0.4.0): por padrão (<see cref="FileScannerOptions.Isolation"/> = <see cref="IsolationMode.Worker"/>)
+/// o estágio de conteúdo — onde o PdfPig abre o PDF — roda em um processo filho (<c>FileScan.Worker</c>); crash,
+/// timeout ou resposta inválida do filho viram <see cref="ScanVerdict.NotInspected"/>, nunca Clean, e o hospedeiro
+/// sobrevive. A validação estrutural e o antivírus continuam no hospedeiro. Worker ausente ⇒ NotInspected com erro
+/// de configuração, sem fallback para <see cref="IsolationMode.InProcess"/> (inseguro para PDF hostil).
 /// </summary>
 public sealed class FileScanService
 {

@@ -47,9 +47,11 @@ object, an xref table/trailer or a `startxref` line (byte-coverage check).
 `/Names /Dests /Kids` name tree, very deep page tree, cycles/long chains of indirect-reference aliases)
 makes `PdfPig` 0.1.16 overflow the stack inside `PdfDocument.Open`; a .NET stack overflow is not
 catchable, so the process hosting FileScan dies. Fixed in 0.3.0 by a guard that runs before `Open`.
-**0.3.0 is intermediate and its pre-open guard is best effort.** It blocks the trivial attack but a file
-built on purpose can still crash the hosting process; 0.4.0 will run `PdfDocument.Open` in a separate process
-(crash/timeout ⇒ `NotInspected`). Until then, restrict who can upload and keep the scanner where a restart is cheap.
+**0.3.0 was intermediate and its pre-open guard is best effort.** It blocks the trivial attack but a file
+built on purpose can still crash the hosting process. **0.4.0 runs `PdfDocument.Open` in a separate worker process
+by default (`FileScannerOptions.Isolation = Worker`)**: a crash, OOM, timeout or invalid answer from the worker kills
+that worker, starts a new one and returns `NotInspected` (never `Clean`) while the host survives.
+Do **not** use `Isolation = InProcess` with hostile PDFs (tests and environments that cannot spawn processes only).
 CI must gate on the exit code of `dotnet test`: the "Passed! N tests" summary printed before an abort can
 mislead anyone who reads only the text.
 
@@ -77,6 +79,57 @@ um arquivo enviado por usuário a um browser, você **deve**:
 
 Tratar um veredito `Clean` como licença para renderizar o arquivo inline na própria
 origem da aplicação reintroduz o risco de stored XSS que o FileScan reduziu.
+
+## Process isolation of the PDF parser (0.4.0)
+
+`PdfDocument.Open` (PdfPig 0.1.16) is the one step whose failure mode — an uncatchable stack overflow — kills the
+process. By default (`FileScannerOptions.Isolation = Worker`) it runs in `FileScan.Worker`, a child process
+shipped inside the NuGet package. What this gives you, and what it does not:
+
+- **Enforced:** a worker that crashes, runs out of memory, exceeds `WorkerTimeout` (20 s), answers invalid JSON, an
+  incoherent result or a truncated stream is killed (whole process tree, only the PID the library started), replaced
+  on the next scan, and the scan returns `NotInspected` — never `Clean`. Cancellation kills the worker and
+  propagates. A worker that cannot be found or started (missing files, no `dotnet` host, OS limits that cannot be
+  applied) also yields `NotInspected` with a configuration error and an `OnIsolationEvent` notification. There is
+  **no silent fallback** to in-process parsing.
+- **Windows:** Job Object per worker — `KILL_ON_JOB_CLOSE`, a single process (no children), a committed-memory cap,
+  no crash dialog.
+- **Best effort only:** on Linux/macOS the memory limit is the GC heap hard limit (`DOTNET_GCHeapHardLimit`) — native
+  memory is not capped, and there is no CPU limit beyond the timeout; a parent watchdog and stdin EOF stop orphaned
+  workers. Use container limits for hard guarantees. Within the 20 s timeout a hostile file can still consume a
+  worker's CPU; a flood of hostile uploads reduces throughput (keep the rate limit) but cannot crash the host.
+- **Not a sandbox:** the worker runs with the host's identity and filesystem/network access. Isolation protects
+  *availability*; it does not contain code execution in the worker. The 0.3.0 pre-Open guard remains the first layer
+  inside the worker, and the residual gaps listed for it no longer take the host down.
+- **Deployment:** the host must be allowed to start child processes and have the .NET 10 runtime. Azure App Service:
+  dedicated plan (B1+) or a Linux container; Free/Shared restrict child processes. `Isolation = InProcess` is unsafe
+  for hostile PDFs.
+
+### Isolamento do parser de PDF em processo separado (0.4.0) — pt-BR
+
+O `PdfDocument.Open` (PdfPig 0.1.16) é o passo cuja falha — um estouro de pilha não capturável — derruba o
+processo. Por padrão (`FileScannerOptions.Isolation = Worker`) ele roda no `FileScan.Worker`, um processo filho
+dentro do pacote NuGet. O que isso garante e o que não garante:
+
+- **Garantido:** worker que cai, estoura memória, passa de `WorkerTimeout` (20 s), responde JSON inválido, resultado
+  incoerente ou fluxo truncado é morto (árvore de processos inteira, só o PID que a biblioteca iniciou), substituído
+  no próximo scan, e o scan devolve `NotInspected` — nunca `Clean`. O cancelamento mata o worker e é propagado.
+  Worker ausente ou impossível de iniciar (arquivos faltando, sem host `dotnet`, limites do SO não aplicáveis)
+  também dá `NotInspected` com erro de configuração e notificação em `OnIsolationEvent`. **Não há fallback
+  silencioso** para o parsing em processo.
+- **Windows:** Job Object por worker — `KILL_ON_JOB_CLOSE`, um único processo (sem filhos), teto de memória
+  comprometida, sem diálogo de crash.
+- **Só melhor esforço:** em Linux/macOS o limite de memória é o teto do heap do GC (`DOTNET_GCHeapHardLimit`) — a
+  memória nativa não é limitada e não há limite de CPU além do timeout; um vigia do processo pai e o EOF do stdin
+  encerram workers órfãos. Use limites do contêiner para garantias rígidas. Dentro dos 20 s um arquivo hostil ainda
+  pode consumir a CPU de um worker; uma enxurrada de uploads hostis reduz a vazão (mantenha o rate limit), mas não
+  derruba o hospedeiro.
+- **Não é sandbox:** o worker roda com a identidade e o acesso a arquivos/rede do hospedeiro. A isolação protege a
+  *disponibilidade*; não contém execução de código no worker. A guarda pré-Open da 0.3.0 segue como primeira camada
+  dentro do worker, e as lacunas residuais dela deixam de derrubar o hospedeiro.
+- **Implantação:** o hospedeiro precisa poder iniciar processos filhos e ter o runtime .NET 10. Azure App Service:
+  plano dedicado (B1+) ou contêiner Linux; Free/Shared restringem processos filhos. `Isolation = InProcess` é
+  inseguro para PDF hostil.
 
 ## Known evasions / limitations
 
