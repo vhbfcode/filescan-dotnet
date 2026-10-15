@@ -89,6 +89,16 @@ public class IsolationAcceptanceTests
 
         var response = await Scan(service, "noguard-" + attack + ".pdf", bytes);
 
+        // Fora do Windows a pilha do worker segue o `ulimit -s` do host: 50 mil /Dests estouram com 8 MB, mas com
+        // 16 MB (reproduzido no sdk:10.0 com --ulimit stack; é o caso do runner ubuntu do GitHub) o PdfPig abre e o
+        // inspetor limitado devolve NotInspected sem derrubar o worker. Aqui o estouro não é exigido; o veredito
+        // seguro, sim. Provisório até o worker usar pilha fixa (docs/tickets/FS-041-pilha-fixa-worker.md).
+        if (attack == "dests_cadeia50000" && !OperatingSystem.IsWindows() && pool.KilledCount == 0)
+        {
+            AssertVerdict(ScanVerdict.NotInspected, response, "ataque que não estourou a pilha neste SO");
+            return;
+        }
+
         // PRIMEIRO a prova de que o worker realmente caiu: sem isso um "Clean" por pilha grande demais é confundido com falha de veredito.
         Assert.True(pool.KilledCount == 1, $"o ataque '{attack}' NÃO derrubou o worker (KilledCount={pool.KilledCount}; veredito {response.Verdict}): o ataque não estoura a pilha neste SO");
         AssertVerdict(ScanVerdict.NotInspected, response, "ataque que passa pela guarda");
