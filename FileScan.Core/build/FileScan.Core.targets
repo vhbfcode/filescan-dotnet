@@ -1,7 +1,8 @@
 <Project>
 
   <!--
-    Importado automaticamente pelo NuGet para quem referencia o pacote FileScan.Core.
+    Importado automaticamente pelo NuGet para quem referencia o pacote FileScan.Core, direta (build/) ou
+    transitivamente (buildTransitive/ — mesmo arquivo empacotado nas duas pastas).
     Copia o FileScan.Worker (processo filho que isola o PdfDocument.Open) para a pasta filescan-worker/ do output
     e do publish do consumidor. O FileScan.Core o localiza por caminho relativo ao próprio assembly.
   -->
@@ -10,6 +11,7 @@
           Link="filescan-worker\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true"
           Visible="false" />
   </ItemGroup>
 

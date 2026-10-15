@@ -45,7 +45,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FileScan.Worker\FileScan.Worker.csproj"
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
-    <None Include="build\FileScan.Core.targets" Pack="true" PackagePath="build\" />
+    <None Include="build\FileScan.Core.targets" Pack="true" PackagePath="build\;buildTransitive\" />
   </ItemGroup>
 
   <Target Name="IncludeWorkerFiles" DependsOnTargets="ResolveProjectReferences"
@@ -64,6 +64,7 @@
             Link="filescan-worker\%(RecursiveDir)%(Filename)%(Extension)"
             CopyToOutputDirectory="PreserveNewest"
             CopyToPublishDirectory="PreserveNewest"
+            ExcludeFromSingleFile="true"
             Pack="true"
             PackagePath="tools\filescan-worker\%(RecursiveDir)" />
     </ItemGroup>

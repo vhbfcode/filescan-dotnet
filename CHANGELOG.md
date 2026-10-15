@@ -17,7 +17,10 @@
   runtime** installed (the worker is framework-dependent and started as `dotnet FileScan.Worker.dll`).
   **Azure App Service:** use a dedicated plan (B1 or higher) or a Linux container; the Free/Shared tiers restrict
   child processes. Test it in the target environment before adopting. Self-contained / single-file hosts without
-  a `dotnet` runtime cannot start the worker (see "No silent fallback").
+  a `dotnet` runtime cannot start the worker (see "No silent fallback"). The worker reaches the output/publish
+  folder for direct **and transitive** package references (`build/` + `buildTransitive/`) and stays out of the
+  single-file bundle (`filescan-worker/` is published next to the executable). The .NET 10 runtime must be
+  installed even if the host targets a newer one (the worker does not roll forward across major versions).
 - `Isolation = InProcess` keeps the 0.3.0 behaviour. It is **unsafe for hostile PDFs** and exists for tests and
   for environments that cannot start processes and accept the risk.
 - **No silent fallback.** The scan is `NotInspected`, never in-process, when the worker is missing/incomplete/of
